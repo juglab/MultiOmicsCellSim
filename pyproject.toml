@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "MultiOmicsCellSim"
+version = "0.0.1"
+description = "A simulator for generating multi-modal biological data."
+readme = "README.md"
+readme-content-type = "text/markdown"
+license = { text = "GPL-3.0" }
+authors = [
+    { name = "Edoardo Giacomello", email = "edoardo.giacomello@fht.org" },
+    { name = "Diya Srivastava", email = "diya.srivastava@fht.org" },
+    { name = "Florian Jug", email = "florian.jug@fht.org" },
+]
+requires-python = ">=3.7"
+keywords = ["multi-omics", "simulation", "microscopy", "single-cell", "spatial omics", "virtual phantom"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+"matplotlib",
+"numpy<2.0",
+"shapely",
+"shapelysmooth",
+"pydantic"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/juglab/MultiOmicsCellSim"
+"Documentation" = "https://github.com/juglab/MultiOmicsCellSim/docs"
+"Repository" = "https://github.com/juglab/MultiOmicsCellSim"
+
+
+[tool.hatch.build.targets.sdist]
+include = ["multiomicscellsim", "README.md", "LICENSE"]

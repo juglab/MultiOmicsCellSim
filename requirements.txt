@@ -1,4 +1,6 @@
-shapely
-shapelysmooth
 matplotlib
 numpy<2.0
+
+# Needed for voronoi-dev files
+shapely
+shapelysmooth
