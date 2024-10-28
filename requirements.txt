@@ -1,0 +1,5 @@
+shapely
+shapelysmooth
+beizer
+matplotlib
+numpy<2.0
