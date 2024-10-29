@@ -4,6 +4,8 @@ from pathlib import Path
 
 from .config import SimulatorConfig
 
+from .tissue_generator import TissueGenerator
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the logging level
 logger = logging.getLogger(__name__)      # Create a logger instance
@@ -22,6 +24,7 @@ class Simulator:
     def __init__(self, config_fp=None):
         # Load the configuration or use default values
         self.config = SimulatorConfig() if config_fp is None else self.load_config(config_fp)
+        self.tissue_generator = TissueGenerator(simulator_config=self.config)
 
     def load_config(self, config_fp):
         try:
@@ -34,13 +37,20 @@ class Simulator:
             logging.error(f"Error loading configuration: {e}")
             raise
 
-    def run(self):
-        logging.info(f"Running simulator with configuration: {self.config.json()}")
-
     def generate_default_json(self):
         """
             Generate a json containing default parameters as starting point for creating a custom one.
         """
-        return self.config.json()
+        return self.config
+    
+    def plot_debug(self, tissue):
+        self.tissue_generator.plot_debug(tissue)
 
+    def sample(self, n=1):
+        """
+            Generate a new tissue sample.
+        """
+        # TODO: allow batched sampling using threadpools
 
+        return self.tissue_generator.sample()
+    

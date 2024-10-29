@@ -1,30 +1,38 @@
-from pydantic import BaseModel, Field, validator
-from typing import List, Literal
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Literal, Union
 
-class TissueEuclideanConfig(BaseModel):
+
+
+class MicroscopySpaceConfig(BaseModel):
+    coord_min: float = 0.0
+    coord_max: float = Field(1000, description="Maximum size of the image in micrometers")
+    resolution: float = Field(1.0, description="Resolution in micrometers (How many um are represented in a pixel)")
+
+
+class TissueConfig(BaseModel):
 
     # Guidelines
     n_curves: int = Field(2, description="Number of different guidelines to grow cells onto")
-    curve_types: Literal["circles"] = Field("circles", description="Kind of guidelines to use")
-    variances: List[float] = Field([1., 1.], description="List of variances for each guideline")
+    curve_types: Literal["circle"] = Field("circle", description="Kind of guidelines to use")
+    min_radius_perc: float = Field(0.25, description="Minimum radius for a circular guideline, in percentage of the image size")
+    max_radius_perc: float = Field(0.3, description="Maximum radius for a circular guideline, in percentage of the image size")
+    # TODO: Consider if everything should be in um or in %.
+    guidelines_std: float = Field(50, description="List of standard deviation (in micrometers) across each point of each guideline")
+    allow_guideline_intersection: bool = Field(False, description="Allow guidelines to intersect each other by removing any constraints on center sampling")
 
-    @validator('variances')
-    def check_variance_length(cls, v, values):
-        n_curves = values.get('n_curves')
-        if n_curves is not None and len(v) != n_curves:
-            raise ValueError(f"Variance list must have the same length as n_curves ({n_curves}).")
-        return v
+    cell_number_mean: int = Field(5, description="Average number of cells that are sampled on each guideline")
+    cell_number_std: int = Field(3, description="Standard deviation of number of cells that are sampled on each guideline")
 
-
-class CellEuclideanConfig(BaseModel):
+class CellConfig(BaseModel):
     pass
 
-class SubcellularEuclideanConfig(BaseModel):
+class SubcellularConfig(BaseModel):
     pass
 
 
 class SimulatorConfig(BaseModel):
     log_level: Literal["INFO", "WARNING", "DEBUG", "ERROR"] = Field("DEBUG", description="Logging Level")
-    tissue_config: TissueEuclideanConfig = Field(TissueEuclideanConfig(), description="Tissue-level input features for euclidean space")
-    cell_config: CellEuclideanConfig = Field(CellEuclideanConfig(), description="Cell-level input features for euclidean space")
-    subcellular_config: SubcellularEuclideanConfig = Field(SubcellularEuclideanConfig(), description="Subcellular-level input features for euclidean space")
+    microscopy_space_config: MicroscopySpaceConfig = Field(MicroscopySpaceConfig(), description="Settings for the Microscopy modality")
+    tissue_config: TissueConfig = Field(TissueConfig(), description="Tissue-level input features")
+    cell_config: CellConfig = Field(CellConfig(), description="Cell-level input features")
+    subcellular_config: SubcellularConfig = Field(SubcellularConfig(), description="Subcellular-level input features")
