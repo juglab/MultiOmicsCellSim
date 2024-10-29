@@ -1,7 +1,8 @@
 # Multi Omics Cell Simulator
 
 This package contains a simulator that is able to generate multi-modal data (i.e., microscopy-like, spatial-omics-like, single-cell-sequencing-like) from a set of input parameters.
-Please keep in mind that the aim of this simulator is **not** to attain an higher degree of biological fidelity. Instead, the main advantage is to have a controllable tool that allows to mimic some underlying processes that govern biological data in a principled way, i.e., knowing the hidden "ground-truth" that is governing the correlations between the different modalities.
+Please keep in mind that **currently** the aim of this simulator is **not** to attain an higher degree of biological fidelity. 
+Instead, the main advantage is to have a controllable tool that allows to mimic some underlying processes that govern biological data in a principled way, i.e., knowing the hidden "ground-truth" that is governing the correlations between the different modalities.
 
 
 ## Installation
