@@ -1,5 +1,6 @@
 matplotlib
 numpy<2.0
+tqdm
 
 # Needed for voronoi-dev files
 shapely
