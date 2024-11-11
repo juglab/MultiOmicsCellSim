@@ -1,6 +1,7 @@
 matplotlib
 numpy<2.0
 tqdm
+scikit-image
 
 # Needed for voronoi-dev files
 shapely

@@ -15,12 +15,16 @@ class CPM():
     def metropolis(self):
         # Avoid picking from inside the cells or in the background by picking only between cell frontiers
         
-        mask = self.grid.get_frontier_mask(z_layer=0) 
+        mask = self.grid.get_frontier_mask(z_layer=0)
+
         mask_coord = list(zip(*np.where(mask)))
+
+        stats = {'same_id': 0, 'failed': 0, 'passed': 0}
 
         for i in range(len(mask_coord)):
             rid = np.random.choice(range(len(mask_coord)))
             s_coord = mask_coord[rid]
+
             if not mask.any():
                 print(f"Sim terminated, no more cell alive")
                 return
@@ -30,22 +34,26 @@ class CPM():
             t_coord, (t_cell_id, t_type, t_sub) = self.grid.get_random_neighbour(source_coords=s_coord)
 
             if s_cell_id == t_cell_id:
+                stats['same_id'] += 1
                 continue
             
             # Copy attempt
             ## Compute Hamiltonian for each constraint
-            total_delta_energy = 0
-            for h in self.grid.constraints:
-               delta_h = h.delta(s_coord, t_coord, self.grid)
-               total_delta_energy += delta_h
+            
+            delta_h_i = [h.delta(s_coord, t_coord, self.grid) for h in self.grid.constraints]
+            total_delta_energy = np.sum(delta_h_i)
 
             is_energy_decreasing = (total_delta_energy <= 0)
-            is_boltzman_passed = (np.random.uniform() <= np.exp(-total_delta_energy/self.grid.temperature))
+            boltzman_prob = np.exp(-total_delta_energy/self.grid.temperature)
+            is_boltzman_passed = (np.random.uniform() <= boltzman_prob)
 
             # Attempt outcome
             if is_energy_decreasing or is_boltzman_passed:
-                # print(f"{is_energy_decreasing=} {is_boltzman_passed=} {total_delta_energy=}")
+                #print(f"{boltzman_prob=} {delta_h_i=} BOLTZMAN DEACTIVATED!!!!")
                 self.grid.copy_pixel(source=s_coord, target=t_coord)
+                stats['passed'] += 1
+            else:
+                stats['failed'] += 1
 
 
     def step(self, n=1):
@@ -72,6 +80,7 @@ class CPM():
         fig.tight_layout()
         to_show_0 = ax[0].imshow(step_cache[0, ..., 0], animated=True)
         to_show_1 = ax[1].imshow(step_cache[0, ..., 1], animated=True)
+        
         
         def animate(t):
             # Update images with the next frame

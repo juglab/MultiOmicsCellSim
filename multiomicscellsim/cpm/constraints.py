@@ -1,5 +1,6 @@
 import numpy as np
 from pydantic import BaseModel, Field
+from typing import List
 
 
 class HamiltonianConstraint(BaseModel):
@@ -7,86 +8,147 @@ class HamiltonianConstraint(BaseModel):
         Represents an Hamiltonian term that imposes a constraint on the simulation
     """
 
-    def delta(self, source, target, grid: "CPMGrid"):
-        """
-            Calculates the change in Hamiltonian energy (ΔH) for the target pixel 
-            if the source pixel value were copied there.
-        """
-        # Initial adhesion energy at the target
-        initial_energy = self.compute(source=source, target=target, grid=grid)
-
-        # Simulate the copy operation (source -> target) to calculate potential new energy
-        old_value = grid.get_pixel(target).copy()
-        # FIXME: This is NOT thread safe!!!! But allows to simulate a whole step without copying the whole grid
-        grid.copy_pixel(source, target)
-        new_energy = self.compute(source=source, target=target, grid=grid)
-
-        # Reset the target pixel to its original state
-        grid.set_pixel(coords=target, value=old_value)
-        
-        return new_energy - initial_energy
+    
 
 class AdhesionConstraint(HamiltonianConstraint):
     """
         Pixels of the same cell will be constrained to stick together
     """
 
-
-
-    def compute(self, source, target,  grid: "CPMGrid"):
+    def delta(self, source, target, grid: "CPMGrid"):
         """
-            Compute adhesion hamiltonian given a simulation state
+            Calculates the change in Hamiltonian energy (ΔH) for the target pixel 
+            if the source pixel value were copied there.
         """
 
-        # TODO: This does not work if celltypes are provided unsorted
-        
-        energy_matrix = np.stack([ct.adhesion_energy for ct in grid.cell_types])
+        # Implementing it as in https://github.com/ingewortel/artistoo/blob/master/src/hamiltonian/Adhesion.js
+        # simulating a target change in type
 
-        total_energy = 0
-        
-        #for x in range(grid.shape[0]):
-        #    for y in range(grid.shape[0]):
-        #mask = simulation_state._difference_mask(grid=grid, z_value=1)
-        #mask_coords = list(zip(*np.where(mask)))
-
-        # Only check source and target neighbors
-        source_neighbors = grid.moore_neighborhood(*source)
-        target_neighbors = grid.moore_neighborhood(*target)
-
-        for x, y in source_neighbors + target_neighbors:
-            neighbors_coords = grid.moore_neighborhood(x, y)
-            source_celltype = grid.get_cell_type(source)
-            for nx, ny in neighbors_coords:
-                target_celltype = grid.get_cell_type([nx, ny])
-                if source_celltype != target_celltype:
-                    #print(f"{x=} {y=} {nx=} {ny=}")
-                    # print(f"{x, y} vs {nx, ny}")
-                    total_energy += energy_matrix[source_celltype, target_celltype]
-        return total_energy
+        # Initial adhesion energy at the target
+        source_type = grid.get_cell_type(source)
+        target_type = grid.get_cell_type(target)
+        return self._h(target, source_type, grid=grid) - self._h(target, target_type, grid=grid)
+               
+    def _h(self, coords: List[int], cell_type: int, grid: "CPMGrid"):
+        """
+            Returns the Hamiltonian around a given cell by checking all the neighbors that have a different cell type.
+        """
+        # TODO: What about cell_id?
+        return np.sum([nb for nb in grid.neighbors[coords[0]][coords[1]] if (grid.get_cell_type(nb) != cell_type)])
 
 class VolumeConstraint(HamiltonianConstraint):
     lambda_volume: float = Field(1.0, description="Energy multiplier for the Volume Hamiltonian") 
     
-    def compute(self, source, target,  grid: "CPMGrid"):
-        source_cell_id = grid.get_cell_id(source)
-        source_cell_type = grid.get_cell_type(source)
-        target_cell_id = grid.get_cell_id(target)
-        target_cell_type = grid.get_cell_type(target)
+    def delta(self, source: List[int], target: List[int], grid: "CPMGrid"):
+        """
+            Calculates the change in Hamiltonian energy (ΔH) for the target pixel 
+            if the source pixel value were copied there.
+        """
+        source_cell = grid.get_cell(source)
+        target_cell = grid.get_cell(target)
 
-        total_energy = 0
-
-        if source_cell_type != 0:
-            source_pref_volume = grid.cell_types[source_cell_type].preferred_volume
-            # FIXME: This is faster but approximate because it also counts the case a cell has splitted somehow
-            # However, in case a cell split it should be assigned a new id so an appropriate check has to be made
-            source_current_volume = np.sum(grid.mask_cell_id(source_cell_id))
-            total_energy += self.lambda_volume * np.power(source_current_volume - source_pref_volume, 2)
+        # Delta for the source cell (energy after gain - current energy)
+        delta_h_s = self._h(source_cell, gain=1) - self._h(source_cell, gain=0)
+        # Delta for the target cell (energy after gain - current energy)
+        delta_h_t = self._h(target_cell, gain=-1) - self._h(target_cell, gain=0)
         
-        if target_cell_type != 0:
-            target_pref_volume = grid.cell_types[target_cell_type].preferred_volume
-            # FIXME: This is faster but approximate because it also counts the case a cell has splitted somehow
-            # However, in case a cell split it should be assigned a new id so an appropriate check has to be made
-            target_current_volume = np.sum(grid.mask_cell_id(target_cell_id))
-            total_energy += self.lambda_volume * np.power(target_current_volume - target_pref_volume, 2)
+        return delta_h_s + delta_h_t
 
-        return total_energy
+    def _h(self, cell: "CPMCell",  gain: int):
+        """
+            Calculate the energy in case a given cell with id cell_id gains or loses a pixel.
+            Adapted from:
+            https://github.com/ingewortel/artistoo/blob/master/src/hamiltonian/VolumeConstraint.js
+        """
+        if cell.id == 0:
+            # stroma is not involved in this constraint
+            return 0
+        
+        volume_diff = cell.cell_type.preferred_volume - (cell.volume + gain)
+        return self.lambda_volume * volume_diff * volume_diff
+
+from skimage.measure import perimeter
+
+class PerimeterConstraint(HamiltonianConstraint):
+    lambda_perimeter: float = Field(1.0, description="Energy Multiplier for the Perimeter Hamiltonian Term")
+    
+
+
+    def delta(self, source, target, grid: "CPMGrid"):
+        source_cell = grid.get_cell(source)
+        target_cell = grid.get_cell(target)
+
+        source_gain, target_gain = self.perimeter_change_if_copied(source=source, target=target, grid=grid)
+
+        # Delta for the source cell (energy after gain - current energy)
+        delta_h_s = self._h(source_cell, gain=source_gain) - self._h(source_cell, gain=0)
+        # Delta for the target cell (energy after gain - current energy)
+        delta_h_t = self._h(target_cell, gain=-target_gain) - self._h(target_cell, gain=0)
+
+        return delta_h_s + delta_h_t
+
+    def _h(self, cell: "CPMCell", gain:int):
+        """
+            Calculate the energy term given a cell and a gain in perimeter.
+        """
+        if cell.id == 0:
+            return 0
+        
+        perimeter_diff = cell.cell_type.preferred_perimeter - (cell.perimeter + gain)
+        return self.lambda_perimeter * perimeter_diff * perimeter_diff
+
+
+    def perimeter_change_if_copied(self, source, target, grid: "CPMGrid"):
+        """
+            Returns how the perimeter of the source and target cells would change if 
+            source were copied to target.
+        """
+        # This code is similar to the one in copy_pixel but without the writes to neighbors.
+
+        delta_perimeter_source = 0
+        delta_perimeter_target = 0
+
+        source_cell = grid.get_cell(source)
+        target_cell = grid.get_cell(target)
+
+        # update neighbors and perimeters
+        new_nbs = [] # new row in neighbors table for the source cell
+        for nb in grid.neighbors[target[0]][target[1]]:
+            nb_cell_id = grid.get_cell_id(nb)
+            if nb_cell_id == source_cell.id:
+                if source_cell.id != 0:
+                    delta_perimeter_source -= 1
+            else:
+                new_nbs.append(nb)
+                if nb_cell_id != 0 and target_cell.id !=0:
+                    delta_perimeter_target += 1
+
+        if source_cell.id != 0:
+            delta_perimeter_source += len(new_nbs)
+        
+        if target_cell.id != 0:
+            # Remove the neighbors of the target pixels formerly belonging to the removed pixel
+            delta_perimeter_target -= len(target_cell._neighbors[tuple(target)])
+        return delta_perimeter_source, delta_perimeter_target
+
+    # def compute(self, source, target, grid:"CPMGrid"):
+    #     source_cell_id = grid.get_cell_id(source)
+    #     source_cell_type = grid.get_cell_type(source)
+    #     target_cell_id = grid.get_cell_id(target)
+    #     target_cell_type = grid.get_cell_type(target)
+
+    #     total_energy = 0
+
+    #     if source_cell_type != 0:
+    #         s_pref_perim = grid.cell_types[source_cell_type].preferred_perimeter
+    #         m_s = grid.mask_cell_id(source_cell_id)
+    #         p_s = perimeter(image=m_s, neighborhood=8 if grid.neighborhood == 'moore' else 4)
+    #         total_energy += self.lambda_perimeter * np.power(p_s - s_pref_perim, 2)
+        
+    #     if target_cell_type != 0:
+    #         t_pref_perim = grid.cell_types[target_cell_type].preferred_perimeter
+    #         m_t = grid.mask_cell_id(target_cell_id)
+    #         p_t = perimeter(image=m_t, neighborhood=8 if grid.neighborhood == 'moore' else 4)
+    #         total_energy += self.lambda_perimeter * np.power(p_t - t_pref_perim, 2)
+
+    #     return total_energy
