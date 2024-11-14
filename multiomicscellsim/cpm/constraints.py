@@ -8,12 +8,13 @@ class HamiltonianConstraint(BaseModel):
         Represents an Hamiltonian term that imposes a constraint on the simulation
     """
 
-    
 
 class AdhesionConstraint(HamiltonianConstraint):
     """
         Pixels of the same cell will be constrained to stick together
     """
+    
+    name: str = "AdhesionConstraint"
 
     def delta(self, source, target, grid: "CPMGrid"):
         """
@@ -37,6 +38,7 @@ class AdhesionConstraint(HamiltonianConstraint):
         return np.sum([nb for nb in grid.neighbors[coords[0]][coords[1]] if (grid.get_cell_type(nb) != cell_type)])
 
 class VolumeConstraint(HamiltonianConstraint):
+    name: str = "VolumeConstraint"
     lambda_volume: float = Field(1.0, description="Energy multiplier for the Volume Hamiltonian") 
     
     def delta(self, source: List[int], target: List[int], grid: "CPMGrid"):
@@ -67,9 +69,8 @@ class VolumeConstraint(HamiltonianConstraint):
         volume_diff = cell.cell_type.preferred_volume - (cell.volume + gain)
         return self.lambda_volume * volume_diff * volume_diff
 
-from skimage.measure import perimeter
-
 class PerimeterConstraint(HamiltonianConstraint):
+    name: str = "PerimeterConstraint"
     lambda_perimeter: float = Field(1.0, description="Energy Multiplier for the Perimeter Hamiltonian Term")
     
 
@@ -90,8 +91,10 @@ class PerimeterConstraint(HamiltonianConstraint):
     def _h(self, cell: "CPMCell", gain:int):
         """
             Calculate the energy term given a cell and a gain in perimeter.
+            That is, how far the perimeter will be to the target one if "gain" perimeter is added.
         """
         if cell.id == 0:
+            # Background is always happy with its own perimeter.
             return 0
         
         perimeter_diff = cell.cell_type.preferred_perimeter - (cell.perimeter + gain)
@@ -105,50 +108,31 @@ class PerimeterConstraint(HamiltonianConstraint):
         """
         # This code is similar to the one in copy_pixel but without the writes to neighbors.
 
-        delta_perimeter_source = 0
-        delta_perimeter_target = 0
-
         source_cell = grid.get_cell(source)
         target_cell = grid.get_cell(target)
 
-        # update neighbors and perimeters
-        new_nbs = [] # new row in neighbors table for the source cell
-        for nb in grid.neighbors[target[0]][target[1]]:
-            nb_cell_id = grid.get_cell_id(nb)
-            if nb_cell_id == source_cell.id:
-                if source_cell.id != 0:
-                    delta_perimeter_source -= 1
-            else:
-                new_nbs.append(nb)
-                if nb_cell_id != 0 and target_cell.id !=0:
-                    delta_perimeter_target += 1
+        # Only consider the neighbors (all pixels) of the target cell (which is where change is happening)        
+        neighbor_pixels =  grid.neighbors[target[0]][target[1]]
+
+        if target_cell.id != 0:
+            # New neighbors that would be created by giving up the target pixel 
+            # (only pixels that belong to the target cell)
+            nbs_to_add = sum([1 for nb in neighbor_pixels if grid.get_cell_id(nb) == target_cell.id])
+            # Neighbors lost by the target cell by giving up the target pixel 
+            # (the current neighbors of the target. aka, everything that is not the target cell)
+            nbs_lost = len(target_cell._neighbors[tuple(target)])
+            delta_perimeter_target = nbs_to_add - nbs_lost
+        else:
+            # Background doesn't have a "preferred perimeter", nor neighbours
+            delta_perimeter_target = 0
 
         if source_cell.id != 0:
-            delta_perimeter_source += len(new_nbs)
-        
-        if target_cell.id != 0:
-            # Remove the neighbors of the target pixels formerly belonging to the removed pixel
-            delta_perimeter_target -= len(target_cell._neighbors[tuple(target)])
+            # New neighbors that would be added to the source cell (everything that is not the source cell itself)
+            new_nbs = sum([1 for nb in neighbor_pixels if grid.get_cell_id(nb) != source_cell.id])
+            # Neighbors lost by extending the source_cell with the new pixel (evertything that is the source cell)
+            nbs_removed = sum([1 for nb in neighbor_pixels if grid.get_cell_id(nb) == source_cell.id])
+            delta_perimeter_source = new_nbs - nbs_removed
+        else:
+            delta_perimeter_source = 0
+
         return delta_perimeter_source, delta_perimeter_target
-
-    # def compute(self, source, target, grid:"CPMGrid"):
-    #     source_cell_id = grid.get_cell_id(source)
-    #     source_cell_type = grid.get_cell_type(source)
-    #     target_cell_id = grid.get_cell_id(target)
-    #     target_cell_type = grid.get_cell_type(target)
-
-    #     total_energy = 0
-
-    #     if source_cell_type != 0:
-    #         s_pref_perim = grid.cell_types[source_cell_type].preferred_perimeter
-    #         m_s = grid.mask_cell_id(source_cell_id)
-    #         p_s = perimeter(image=m_s, neighborhood=8 if grid.neighborhood == 'moore' else 4)
-    #         total_energy += self.lambda_perimeter * np.power(p_s - s_pref_perim, 2)
-        
-    #     if target_cell_type != 0:
-    #         t_pref_perim = grid.cell_types[target_cell_type].preferred_perimeter
-    #         m_t = grid.mask_cell_id(target_cell_id)
-    #         p_t = perimeter(image=m_t, neighborhood=8 if grid.neighborhood == 'moore' else 4)
-    #         total_energy += self.lambda_perimeter * np.power(p_t - t_pref_perim, 2)
-
-    #     return total_energy

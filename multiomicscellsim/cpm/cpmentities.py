@@ -3,9 +3,11 @@ from functools import cached_property
 from typing import Optional, List, Literal, Tuple, Dict
 
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 from .constraints import HamiltonianConstraint, AdhesionConstraint, VolumeConstraint
-
+import pandas as pd
+import seaborn as sns
 
 
 class CPMCellType(BaseModel):
@@ -25,6 +27,23 @@ class CPMCell(BaseModel):
     cell_type: CPMCellType
     volume: int
     _neighbors: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+    
+    @cached_property
+    def _stats(self) -> pd.DataFrame:
+        cols = ['step', 'id', 'type_id', 'volume', 'perimeter']
+        return pd.DataFrame({c: [] for c in cols})
+
+    def log(self, step):
+
+        new_data = {
+                    'step': [step],
+                    'id': [self.id],
+                    'type_id': [self.cell_type.id],
+                    'volume': [self.volume], 
+                    'perimeter': [self.perimeter]
+                    }
+        self._stats = pd.concat([self._stats, pd.DataFrame(new_data)], ignore_index=True)
+        return self._stats
 
     def set_neighbors(self, neighbors: Dict[Tuple[int, int], List[Tuple[int, int]]]):
         self._neighbors = neighbors
@@ -35,18 +54,29 @@ class CPMCell(BaseModel):
     def update_perimeter(self, change: int):
         self.perimeter += change
 
+    def _is_nb_diagonal(self, px, nb):
+        return  (abs(px[0] - nb[0]) == 1) and (abs(px[1] - nb[1]) == 1)
+
     @computed_field
     @property
     def perimeter(self) -> int:
-        return np.sum([len(nb) for k, nb in self._neighbors.items()])
+        #perim = 0
+        #for px, nbs in self._neighbors.items():
+        #    # Count only neighbors that are "von_neumann"
+        #    perim += np.sum( [1 for nb in nbs if not self._is_nb_diagonal(px, nb)])
+        #return perim
+        return np.sum([nbs for src_coord, nbs in self._neighbors])
     
     def add_neighbor_to(self, coords, neighbor):
         r, c = coords
         if (r, c) not in self._neighbors.keys():
             self._neighbors[(r, c)] = []
-        if neighbor not in self._neighbors[(r, c)]:
+        if tuple(neighbor) not in self._neighbors[(r, c)]:
             self._neighbors[(r, c)].append(tuple(neighbor))
-    
+        else:
+            # This is normal if we are dealing with more than two kinds of cell_id in the same nbhood
+            pass
+
     def remove_neighbor_from(self, coords, neighbor, all=False):
         r, c = coords
         if all:
@@ -60,7 +90,18 @@ class CPMCell(BaseModel):
                         del self._neighbors[(r, c)]
                 except ValueError:
                     # Neighbor was not in the list
+                    print("Not in list")
                     pass
+    
+    def get_random_neighboring_pair(self):
+        """
+            Returns a random pixel on the frontier of this cell and a random neighbor by sampling from the internal list
+        """
+        
+        random_pixel, nbs = random.choice(list(self._neighbors.items()))
+        return random_pixel, random.choice(nbs)
+        
+        
 
 class CPMGrid(BaseModel):
     """
@@ -256,7 +297,6 @@ class CPMGrid(BaseModel):
                     if cell_property != neighbor_cell_property:
                         mask[r, c] = True
                         break  # No need to check further neighbors
-        
         return mask
 
     def get_random_neighbour(self, source_coords: Tuple[int, int], neighborhood="moore") -> Tuple[Tuple[int, int], np.ndarray]:
@@ -321,7 +361,6 @@ class CPMGrid(BaseModel):
             
             # Since we are directly accessing the grid, update the volume for the background
             self._cells[0].gain_volume(-drawn_area)
-
             new_cell = CPMCell(id=cell_id, 
                             cell_type=self.cell_types[cell_type], 
                             volume=drawn_area)
@@ -349,33 +388,40 @@ class CPMGrid(BaseModel):
         """
 
         new_value = self.get_pixel(source)
-        new_cell_id, new_cell_type, new_organelles = new_value
         source_cell = self.get_cell(source)
         target_cell = self.get_cell(target)
 
         # update volumes
-        source_cell.gain_volume(-1)
-        target_cell.gain_volume(1)
+        source_cell.gain_volume(1)
+        target_cell.gain_volume(-1)
 
-        # update neighbors and perimeters
-        new_nbs = [] # new row in neighbors table for the source cell
-        for nb in self.neighbors[target[0]][target[1]]:
-            nb_cell_id = self.get_cell_id(nb)
-            if nb_cell_id == new_cell_id:
-                if source_cell.id != 0:
-                    source_cell.remove_neighbor_from(coords=nb, neighbor=target)
-            else:
-                new_nbs.append(nb)
-                if nb_cell_id != 0 and target_cell.id !=0:
-                    target_cell.add_neighbor_to(coords=nb, neighbor=target)
+        # update neighbors and perimeters (checked version)
 
-        # Adding all the neighbors belonging to the target pixel to the source cell
-        for nb in new_nbs:
-            if source_cell.id != 0:
-                source_cell.add_neighbor_to(coords=target, neighbor=nb)
-        # Removing all the neighbors belonging to the target pixel from the target cell
+        # Computing only around the target pixel, everything else remains unchanged (also the nbs of other cell_ids)
+        neighbor_pixels =  self.neighbors[target[0]][target[1]]
+        
+        # Target cell will gain new neighbors towards the target pixel by losing it:
         if target_cell.id != 0:
-            target_cell.remove_neighbor_from(target, neighbor=None, all=True)
+            for nb in [n for n in neighbor_pixels if self.get_cell_id(n) == target_cell.id]:
+                target_cell.add_neighbor_to(tuple(nb), neighbor=target)
+            # It will also lose the target pixel neighbors
+            target_cell.remove_neighbor_from(coords=tuple(target), neighbor=None, all=True)
+
+        # Source cell will gain new neighbors by contacting the target cell
+        if source_cell.id != 0:
+            for nb in [nb for nb in neighbor_pixels if self.get_cell_id(nb) != source_cell.id]:
+                source_cell.add_neighbor_to(coords=tuple(target),
+                                            neighbor=nb)
+            # Source cell will also lose some neighbors by extending itself with the new pixel
+            for nb in [nb for nb in neighbor_pixels if self.get_cell_id(nb) == source_cell.id]:
+                source_cell.remove_neighbor_from(coords=nb, neighbor=target)
+
+        # Check if target cell is still alive
+        if target_cell.volume <= 0:
+            # TODO: Understand what to do in this case
+            print(f"Cell {target_cell.id} has died.")
+            # Removing the cell to avoid resampling it again
+            self._cells.remove(target_cell)
 
         self.set_pixel(target, new_value)
 
@@ -419,3 +465,11 @@ class CPMGrid(BaseModel):
         plt.xlabel("X Coordinate")
         plt.ylabel("Y Coordinate")
         plt.show()
+
+    def plot_stats(self):
+        cell_stats = pd.concat([c._stats for c in self._cells if c.id != 0])
+        cell_stats = cell_stats.melt(id_vars=['step', 'id', 'type_id'])
+
+        return sns.relplot(data=cell_stats, x="step", y="value", col="variable", hue="id", style="type_id", kind="line")
+
+        

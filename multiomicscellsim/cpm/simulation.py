@@ -1,41 +1,56 @@
 import numpy as np
+import random
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.colors import ListedColormap, BoundaryNorm
 
 from tqdm import tqdm
+import pandas as pd
 
 
 class CPM():
     grid: "CPMGrid"
 
-    def __init__(self, grid: "CPMGrid"):
+    def __init__(self, grid: "CPMGrid", debug: bool = False):
         self.grid = grid
+        self.debug = debug
+        self.stats = pd.DataFrame()
 
-    def metropolis(self):
+    def metropolis(self, step):
+
+        """
+        
+        
+        """
+
         # Avoid picking from inside the cells or in the background by picking only between cell frontiers
         
-        mask = self.grid.get_frontier_mask(z_layer=0)
+        if self.debug:
+            for cell in self.grid._cells:
+                cell.log(step=step)
 
-        mask_coord = list(zip(*np.where(mask)))
+        perimeters = np.round(np.sum([c.perimeter for c in self.grid._cells])).astype(np.int32)
+        for i in range(perimeters):
+            
+            new_copies = 0
 
-        stats = {'same_id': 0, 'failed': 0, 'passed': 0}
+            random_cell = random.choice(self.grid._cells[1:])
+            frontier_pxl, rand_neighbor = random_cell.get_random_neighboring_pair()
+            if random.random() < .5:
+                s_coord = list(frontier_pxl)
+                t_coord = list(rand_neighbor)
+            else:
+                s_coord = list(rand_neighbor)
+                t_coord = list(frontier_pxl)           
 
-        for i in range(len(mask_coord)):
-            rid = np.random.choice(range(len(mask_coord)))
-            s_coord = mask_coord[rid]
-
-            if not mask.any():
-                print(f"Sim terminated, no more cell alive")
-                return
-            # s_*: source t_*: target
-            #s_coord, (s_cell, s_type, s_sub) = self.sim.get_random_pixel()
             s_cell_id = self.grid.get_cell_id(s_coord)
-            t_coord, (t_cell_id, t_type, t_sub) = self.grid.get_random_neighbour(source_coords=s_coord)
+            t_cell_id = self.grid.get_cell_id(t_coord)
 
             if s_cell_id == t_cell_id:
-                stats['same_id'] += 1
                 continue
+
+
             
             # Copy attempt
             ## Compute Hamiltonian for each constraint
@@ -51,37 +66,59 @@ class CPM():
             if is_energy_decreasing or is_boltzman_passed:
                 #print(f"{boltzman_prob=} {delta_h_i=} BOLTZMAN DEACTIVATED!!!!")
                 self.grid.copy_pixel(source=s_coord, target=t_coord)
-                stats['passed'] += 1
-            else:
-                stats['failed'] += 1
+                new_copies += 1
+                        
+            if self.debug:
+                new_stats = {
+                        "step": [step],
+                        "source_cell_id": [s_cell_id],
+                        "target_cell_id": [t_cell_id],
+                        "source_coords": [s_coord],
+                        "target_coords": [t_coord],
+                        "boltzman_prob": [boltzman_prob],
+                        "boltzman_passed": [is_boltzman_passed],
+                        "total_delta_h": [total_delta_energy],
+                        "success": [is_energy_decreasing or is_boltzman_passed]
+                    }
+                constraint_names = [c.name for c in self.grid.constraints]
+                
+                for constr_name, constr_delta in zip(constraint_names, delta_h_i):
+                    new_stats.update({constr_name: [constr_delta]})
+
+                self.stats = pd.concat([self.stats, pd.DataFrame(new_stats)], ignore_index=True)        
 
 
-    def step(self, n=1):
+
+    def step(self, max_steps=1):
         """ Perform n steps of Cellular Pott Model"""
-        for n in range(n):
-            #print(f"{n=}")
-            self.metropolis()
-        return self.grid.grid
+        step_cache = [self.grid.grid.copy()]
+
+        for s in tqdm(range(1, max_steps)):
+            self.metropolis(step=s)
+            step_cache.append(self.grid.grid.copy())
+
+        return np.stack(step_cache)
+
 
     def render_animation(self, max_steps=10):
         """
         Displays a widget to play the full animation with controls.
         """
         # Generate and stack the animation frames
-        
-        step_cache = np.stack([self.grid.grid.copy()]+[self.step(1).copy() for _ in tqdm(range(max_steps))])
-        
+        step_cache = self.step(max_steps=max_steps)
+                   
         # Set up the figure and subplots
-        fig, ax = plt.subplots(1, 2)
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
         for a in ax:
             a.axis('off')
         ax[0].set_title("Cell ID")
         ax[1].set_title("Cell Type")
         fig.tight_layout()
-        to_show_0 = ax[0].imshow(step_cache[0, ..., 0], animated=True)
-        to_show_1 = ax[1].imshow(step_cache[0, ..., 1], animated=True)
         
-        
+        # Apply the colormaps and display the first frame
+        to_show_0 = ax[0].imshow(step_cache[0, ..., 0], animated=True, cmap="tab20b")
+        to_show_1 = ax[1].imshow(step_cache[0, ..., 1], animated=True, cmap="tab20c")
+
         def animate(t):
             # Update images with the next frame
             to_show_0.set_data(step_cache[t, ..., 0])
@@ -89,4 +126,4 @@ class CPM():
             return to_show_0, to_show_1
         
         anim = animation.FuncAnimation(fig, animate, frames=max_steps, blit=True)
-        return anim 
+        return anim

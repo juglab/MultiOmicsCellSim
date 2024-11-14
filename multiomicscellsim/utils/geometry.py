@@ -1,5 +1,6 @@
 import math
 import numpy as np
+from typing import List
 
 
 def circle_rectangle_intersections(xc: float, yc:float, rc, rectangle_corners):
@@ -47,7 +48,7 @@ def circle_rectangle_intersections(xc: float, yc:float, rc, rectangle_corners):
 
 import math
 
-def cartesian_to_angle(points, xc, yc):
+def cartesian_to_circle_angle(points, xc, yc):
     """
     Convert a list of Cartesian coordinates to angles (in radians) 
     based on a given circle's center.
@@ -67,7 +68,7 @@ def cartesian_to_angle(points, xc, yc):
         angles.append(angle)
     return angles
 
-def angle_to_cartesian(theta, xc, yc, r):
+def circle_polar_to_cartesian(theta, xc, yc, r):
     """
     Convert an angle (in radians) to Cartesian coordinates on a circle.
     
@@ -84,7 +85,7 @@ def angle_to_cartesian(theta, xc, yc, r):
     y = yc + r * math.sin(theta)
     return (x, y)
 
-def point_in_rectangle(px, py, x_min, y_min, x_max, y_max):
+def is_point_in_rectangle(px, py, x_min, y_min, x_max, y_max):
     """
     Check if a point lies within a rectangle.
     
@@ -101,52 +102,109 @@ def point_in_rectangle(px, py, x_min, y_min, x_max, y_max):
     """
     return x_min <= px <= x_max and y_min <= py <= y_max
 
-def interpolate_angles(angle1, angle2):
-    """
-    Interpolate between two angles in radians to find the shorter 
-    and longer midpoints.
-
-    Parameters:
-    angle1 (float): The first angle in radians.
-    angle2 (float): The second angle in radians.
-
-    Returns:
-    tuple: A tuple containing the shorter midpoint and the longer 
-           midpoint angles in radians.
-    """
-    # Normalize angles to the range [0, 2π)
-    angle1 = angle1 % (2 * math.pi)
-    angle2 = angle2 % (2 * math.pi)
-
-    # Calculate the difference
-    delta = angle2 - angle1
-
-    # Ensure the shortest path
-    if delta > math.pi:
-        delta -= 2 * math.pi
-    elif delta < -math.pi:
-        delta += 2 * math.pi
-
-    # Calculate midpoints
-    midpoint_shorter = angle1 + delta / 2
-    midpoint_longer = midpoint_shorter + math.pi if midpoint_shorter + math.pi < 2 * math.pi else midpoint_shorter - math.pi
-
-    return midpoint_shorter, midpoint_longer
-
 to_degrees = lambda x: x * (180 / math.pi)
 
+normalize_angle = lambda x: x % (2*math.pi)
+
+def angle_midpoint(start, end) -> float:
+    """
+        Get the angle midpoint between start and end considering a counterclockwise motion. 
+        
+        That is:
+        angle_midpoint(0, math.pi) # Should return pi/2
+        angle_midpoint(math.pi, 2*math.pi) # Should return 3/2pi
+        angle_midpoint(math.pi/2, 3/2 * math.pi)  # Should return math.pi
+        angle_midpoint(3/2 * math.pi, math.pi/2)  # Should return 0
+        angle_midpoint(-math.pi/2, math.pi/2)  # Should return 0
+        angle_midpoint(math.pi/2, -math.pi/2)  # Should return math.pi
+    """
+    if start > end:
+        return abs(angle_midpoint(start=end, end=start) - math.pi)
+    return start + (end - start) / 2
 
 def get_arcs_inside_rectangle(xc, yc, rc, xr_min, yr_min, xr_max, yr_max):
     """
-        Given a circle and a rectangle, returns the radians intervals for each arc that lies within the rectangle.
+    Given a circle and a rectangle, returns the radians intervals for each arc that lies within the rectangle.
+    If the circle is completely contained in the rectangle (no intersections), returns a single interval [0; 2π].
+
+    Parameters
+    ----------
+    xc : float
+        x-coordinate of the circle center.
+    yc : float
+        y-coordinate of the circle center.
+    rc : float
+        Radius of the circle.
+    xr_min : float
+        Minimum x-coordinate of the rectangle.
+    yr_min : float
+        Minimum y-coordinate of the rectangle.
+    xr_max : float
+        Maximum x-coordinate of the rectangle.
+    yr_max : float
+        Maximum y-coordinate of the rectangle.
+
+    Returns
+    -------
+    list of [float, float]
+        A list of [start, end] angle intervals (in radians) for each arc that lies within the rectangle.
+        Each interval represents an arc segment of the circle within the rectangular boundary.
+        If the circle is completely within the rectangle, a single interval [0, 2π] is returned.
     """
-    intersections = circle_rectangle_intersections(xc, yc, rc, [xr_min, yr_min, xr_max, yr_max])
 
     arcs = []
+    intersections = circle_rectangle_intersections(xc, yc, rc, [xr_min, yr_min, xr_max, yr_max])
+    # Find the angles theta corresponding with intersection with borders
+    intersection_angles = cartesian_to_circle_angle(points=intersections, xc=xc, yc=yc)
 
-    intersection_angles = cartesian_to_angle(points=intersections, xc=xc, yc=yc)
-    # FIXME: Continue here
+    # Iterate over all the arcs found, counterclockwise
+    for start, end in zip(intersection_angles, np.roll(intersection_angles, -1)):
+        # Get the middlepoint (counterclockwise, not on the shortest path)
+        mid = angle_midpoint(start, end)
+        x_mid, y_mid = circle_polar_to_cartesian(theta=mid, xc=xc, yc=yc, r=rc)
+        
+        if is_point_in_rectangle(x_mid, y_mid, xr_min, yr_min, xr_max, yr_max):
+            if start > end:
+                arcs.append([end, start])
+            else:
+                arcs.append([start, end])
+    
+    if len(arcs) == 0:
+        arcs.append([0, 2*math.pi])
 
-    print(intersection_angles)
     return arcs
+
+
+def map_samples_to_arcs(samples: List[float], arcs: List[List[float]]):
+    """
+        Given a set of arcs belonging to a circumference, maps some samples from [0, 1] to the arcs as they were a contiguous line.
+
+        Parameters
+        -------
+        samples: A list of samples in [0, 1)
+        arcs: A list of lists, [[start, end], [....]]
+              where start and ends are the start and end angles for the arc (in radians)
+    """
+    # Mapping theta values from [0, 1] to visible arcs of the guideline
+    total_arc_length = sum(end - start for start, end in arcs)
+
+    sampled_thetas = []
+    for sample in samples:
+        # Scale sample to the range [0, total_arc_length]
+        sample_position = sample * total_arc_length
+        
+        # Find which arc this sample falls into
+        cumulative_length = 0
+        for start, end in arcs:
+            arc_length = end - start
+            if cumulative_length + arc_length >= sample_position:
+                # Sample is in this arc
+                # Calculate the angle within this arc
+                angle = start + (sample_position - cumulative_length)
+                sampled_thetas.append(angle)
+                break
+            cumulative_length += arc_length
+
+    return sampled_thetas
+
 

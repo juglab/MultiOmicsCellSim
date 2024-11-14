@@ -5,8 +5,9 @@ from typing import List, Literal, Union
 
 class MicroscopySpaceConfig(BaseModel):
     coord_min: float = 0.0
-    coord_max: float = Field(1000, description="Maximum size of the image in micrometers")
+    coord_max: float = Field(1024, description="Maximum size of the image in micrometers")
     resolution: float = Field(1.0, description="Resolution in micrometers (How many um are represented in a pixel)")
+    cpm_grid_size: float = Field(128, description="Grid size for the CPM simulation Grid")
 
 
 class TissueConfig(BaseModel):
@@ -22,6 +23,8 @@ class TissueConfig(BaseModel):
 
     cell_number_mean: int = Field(5, description="Average number of cells that are sampled on each guideline")
     cell_number_std: int = Field(3, description="Standard deviation of number of cells that are sampled on each guideline")
+
+    
 
 class CellConfig(BaseModel):
     pass
