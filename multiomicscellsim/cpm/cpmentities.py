@@ -424,13 +424,6 @@ class CPMGrid(BaseModel):
             for nb in [nb for nb in neighbor_pixels if self.get_cell_id(nb) == source_cell.id]:
                 source_cell.remove_neighbor_from(coords=nb, neighbor=target)
 
-        # Check if target cell is still alive
-        if target_cell.volume <= 0:
-            # TODO: Understand what to do in this case
-            print(f"Cell {target_cell.id} has died.")
-            # Removing the cell to avoid resampling it again
-            self._cells.remove(target_cell)
-
         self.set_pixel(target, new_value)
 
     def get_pixel(self, coords: List[int]):

@@ -30,12 +30,19 @@ class CPM():
             for cell in self.grid._cells:
                 cell.log(step=step)
 
-        perimeters = np.round(np.sum([c.perimeter for c in self.grid._cells])).astype(np.int32)
-        for i in range(perimeters):
-            
-            new_copies = 0
+        
+        
+        timestep = 0
+        while timestep < 1.0:
+            perimeters = [ int(c.perimeter) for c in self.grid._cells ]
+            tot_perimeter = sum(perimeters)
+            cell_pick_prob = [ p / tot_perimeter for p in perimeters]
+            timestep += 1. / tot_perimeter
 
-            random_cell = random.choice(self.grid._cells[1:])
+            new_copies = 0
+            # Pick one random cell according to their perimeter length
+            random_cell_id = np.random.choice(range(len(self.grid._cells)), p=cell_pick_prob)
+            random_cell = self.grid._cells[random_cell_id]
             frontier_pxl, rand_neighbor = random_cell.get_random_neighboring_pair()
             if random.random() < .5:
                 s_coord = list(frontier_pxl)
