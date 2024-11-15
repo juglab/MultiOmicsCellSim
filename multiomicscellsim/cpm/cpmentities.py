@@ -47,19 +47,26 @@ class CPMCell(BaseModel):
 
     def set_neighbors(self, neighbors: Dict[Tuple[int, int], List[Tuple[int, int]]]):
         self._neighbors = neighbors
+        self._perimeter = self._compute_perimeter()
 
     def gain_volume(self, gain: int = 1):
         self.volume += gain
-        
-    def update_perimeter(self, change: int):
-        self.perimeter += change
 
     def _is_nb_diagonal(self, px, nb):
         return  (abs(px[0] - nb[0]) == 1) and (abs(px[1] - nb[1]) == 1)
 
+
     @computed_field
-    @property
+    @cached_property
     def perimeter(self) -> int:
+        """
+        Perimeter. Value is computed on the first access then cached.
+        It is kept updated by neighbor setter and getters to avoid recomputing it every time
+        """
+        return self._compute_perimeter()
+
+    
+    def _compute_perimeter(self) -> int:
         #perim = 0
         #for px, nbs in self._neighbors.items():
         #    # Count only neighbors that are "von_neumann"
@@ -73,6 +80,7 @@ class CPMCell(BaseModel):
             self._neighbors[(r, c)] = []
         if tuple(neighbor) not in self._neighbors[(r, c)]:
             self._neighbors[(r, c)].append(tuple(neighbor))
+            self._perimeter += 1
         else:
             # This is normal if we are dealing with more than two kinds of cell_id in the same nbhood
             pass
@@ -80,11 +88,13 @@ class CPMCell(BaseModel):
     def remove_neighbor_from(self, coords, neighbor, all=False):
         r, c = coords
         if all:
+            self._perimeter -= len(self._neighbors[(r, c)])
             del self._neighbors[(r,c)]
         else:
             if (r, c) in self._neighbors:
                 try:
                     self._neighbors[(r, c)].remove(tuple(neighbor))
+                    self._perimeter -= 1
                     # Clean up if no neighbors remain at (r, c)
                     if not self._neighbors[(r, c)]:
                         del self._neighbors[(r, c)]
@@ -365,7 +375,7 @@ class CPMGrid(BaseModel):
                             cell_type=self.cell_types[cell_type], 
                             volume=drawn_area)
             
-            # This has to be called AFTER drawing the cell!
+            # This has to be called AFTER drawing the cell! (Also updates the perimeter)
             new_cell.set_neighbors(self._compute_cell_neighbors(cell_id, z_layer=0))
             
             self._cells.append(new_cell)
