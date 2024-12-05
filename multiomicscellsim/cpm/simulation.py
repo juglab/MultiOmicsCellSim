@@ -30,8 +30,6 @@ class CPM():
             for cell in self.grid._cells:
                 cell.log(step=step)
 
-        
-        
         timestep = 0
         while timestep < 1.0:
             perimeters = [ int(c.perimeter) for c in self.grid._cells ]
@@ -57,8 +55,6 @@ class CPM():
             if s_cell_id == t_cell_id:
                 continue
 
-
-            
             # Copy attempt
             ## Compute Hamiltonian for each constraint
             

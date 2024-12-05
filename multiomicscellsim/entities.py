@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
+from .cpm.cpmentities import CPMCell, CPMGrid
 
 class SampledEntity(BaseModel):
     seed: int
@@ -26,6 +27,7 @@ class Cell(BaseModel):
         Represents a sampled cell
     """
     start_coordinates: List[float]
+    cpm_cell: CPMCell
 
 
 class Tissue(BaseModel):
@@ -35,8 +37,7 @@ class Tissue(BaseModel):
 
     guidelines: List[Guideline]
     cells: List[Cell] = Field([], description="Cells belonging to this tissue")
-
-
+    cpm_grid: Union[CPMGrid, None] = Field(None, description="CPM Grid for the tissue")
 
 class SubcellularShape():
     pass

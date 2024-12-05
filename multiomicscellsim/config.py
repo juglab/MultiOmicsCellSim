@@ -1,13 +1,14 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Literal, Union
 
-
+from .cpm.cpmentities import CPMCellType
+from .cpm.constraints import HamiltonianConstraint
 
 class MicroscopySpaceConfig(BaseModel):
     coord_min: float = 0.0
     coord_max: float = Field(1024, description="Maximum size of the image in micrometers")
     resolution: float = Field(1.0, description="Resolution in micrometers (How many um are represented in a pixel)")
-    cpm_grid_size: float = Field(128, description="Grid size for the CPM simulation Grid")
+    cpm_grid_size: int = Field(128, description="Grid size for the CPM simulation Grid")
 
 
 class TissueConfig(BaseModel):
@@ -23,9 +24,13 @@ class TissueConfig(BaseModel):
 
     cell_number_mean: int = Field(5, description="Average number of cells that are sampled on each guideline")
     cell_number_std: int = Field(3, description="Standard deviation of number of cells that are sampled on each guideline")
-
     
-
+    cpm_temperature: float = Field(0.1, description="Temperature of the CPM simulation")
+    cpm_iterations: int = Field(100, description="Number of iterations for the CPM simulation")
+    cpm_cell_types: List[CPMCellType] = Field([], description="List of cell types to use in the CPM simulation. Differentiate the cell behaviour during growth")
+    cpm_lambda_perimeter: float = Field(1.0, description="Scaling factor for the CPM perimeter energy")
+    cpm_lambda_volume: float = Field(1.0, description="Scaling factor for the CPM volume energy")
+    cpm_constraints: List[HamiltonianConstraint] = Field([], description="List of constraints to apply to the CPM simulation. Define the behaviour of the cells during growth")
 class CellConfig(BaseModel):
     pass
 

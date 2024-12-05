@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from .config import SimulatorConfig
+from .entities import Tissue
 
 from .tissue_generator import TissueGenerator
 
@@ -21,9 +22,19 @@ LOG_LEVELS = {
 class Simulator:
     config: SimulatorConfig
 
-    def __init__(self, config_fp=None):
+    def __init__(self, config: SimulatorConfig, config_fp=None):
         # Load the configuration or use default values
-        self.config = SimulatorConfig() if config_fp is None else self.load_config(config_fp)
+        if config is not None:
+            self.config = config
+            logger.debug(f"Loaded configuration from instance")
+        else:
+            if config_fp is None:
+                logger.warning("No configuration provided. Using default values.")
+                self.config = SimulatorConfig()
+            else:
+                self.config = self.load_config(config_fp)
+                logger.debug(f"Loaded configuration from file: {config_fp}")
+
         self.tissue_generator = TissueGenerator(simulator_config=self.config)
 
     def load_config(self, config_fp):
@@ -43,8 +54,10 @@ class Simulator:
         """
         return self.config
     
-    def plot_debug(self, tissue):
+    def plot_debug(self, tissue: Tissue):
         self.tissue_generator.plot_debug(tissue)
+        tissue.cpm_grid.render(0)
+        tissue.cpm_grid.render(1)
 
     def sample(self, n=1):
         """

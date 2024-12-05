@@ -22,6 +22,10 @@ If you get an error regarding a missing seuptool-based build, please upgrade you
 
 Just pull the repository, cd into it and install with `python -m pip install -e .`. Again, ensure you have an updated version of pip which supports `hatch` and editable mode together.
 
+## Quick Start
+
+Refer to the [example notebook](examples/example.ipynb)
+
 ## Features:
 
 - Tissue-level pictograms (WIP): Generate **microscopy-like** images starting from some input features at a tissue, cell and subcellular level. 

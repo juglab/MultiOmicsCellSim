@@ -78,6 +78,7 @@ class TissueGenerator():
             n_cells = np.round(np.random.normal(loc=self.tissue_config.cell_number_mean,
                                                 scale=self.tissue_config.cell_number_std,
                                                 )).astype(int)
+            n_cells = max(1, n_cells)
             guideline = Guideline(
                             type="circle",
                             x_center=center[0],
@@ -149,51 +150,49 @@ class TissueGenerator():
 
         return row, col
 
-    def sample(self,
-               cell_types: List[CPMCellType], 
-               temperature: float = 1.0,
-               lambda_volume: float = 10,
-               lambda_perimeter: float = 10
-               ):
+    def sample(self):
         """
             Sample a new tissue.
         """
-        
+        # Define a grid for the CPM simulation
         grid = CPMGrid(
                         size=self.microscopy_config.cpm_grid_size, 
-                        temperature=temperature,
-                        cell_types=cell_types,
-                        constraints=[
-                            AdhesionConstraint(), 
-                            VolumeConstraint(lambda_volume=lambda_volume),
-                            PerimeterConstraint(lambda_perimeter=lambda_perimeter)
-                            ]
+                        temperature=self.tissue_config.cpm_temperature,
+                        cell_types=self.tissue_config.cpm_cell_types,
+                        constraints=self.tissue_config.cpm_constraints
                      )
-
-
+        
+        # Generate the guidelines (in microscopy space) for spawning cells
         guidelines = self._sample_guidelines()
         cells = []
         for g, gl in enumerate(guidelines):
             centroids = self._sample_cell_centroid(gl)
-            cpm_centroids = [self._cartesian_to_grid_coords(c[0], c[1]) for c in centroids]
+
+            invalid_centroids = 0
+
+            cpm_cell_centroids = [self._cartesian_to_grid_coords(c[0], c[1]) for c in centroids]
             print(centroids)
-            print(cpm_centroids)
-            for centroid, cpm_cell_coord in zip(centroids, cpm_centroids):
-                grid.draw_cell_at(cpm_cell_coord, cell_type=g+1, size=3)
-                cells.append(Cell(start_coordinates=centroid))
+            print(cpm_cell_centroids)
+
+            # Spawn cells in the CPM grid
+            for centroid, cpm_cell_coord in zip(centroids, cpm_cell_centroids):
+                new_cpm_cell = grid.draw_cell_at(cpm_cell_coord, cell_type=g+1, size=3)
+                if new_cpm_cell is None:
+                    # FIXME: Handle this better (resampling)
+                    logger.error(f"Could not spawn cell at {cpm_cell_coord}, probably the position is already occupied.")
+                    print(f"FIXME: Could not spawn cell at {cpm_cell_coord}, probably the position is already occupied.")
+                else:
+                    cells.append(Cell(start_coordinates=centroid, cpm_cell=new_cpm_cell))
             
-
-        # Setup Simulation
-        # FIXME: Engineer this
-
-        
         cpm = CPM(grid=grid)
-
-
+        steps = cpm.step(max_steps=self.tissue_config.cpm_iterations)
+    
+        # TODO: DEFINE WHICH STEP TO USE FOR THE TISSUE
         return Tissue(
             guidelines=guidelines,
-            cells=cells
-        ), grid, cpm
+            cells=cells,
+            cpm_grid=grid
+        )
 
 
     def render(self):
@@ -230,6 +229,7 @@ class TissueGenerator():
             x, y = cell.start_coordinates
             # Plot cell position as an "X"
             ax.plot(x, y, 'x', color='blue')
+
         plt.gca().invert_yaxis()
         plt.show()
 
