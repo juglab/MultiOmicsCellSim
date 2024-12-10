@@ -10,7 +10,51 @@ from IPython.display import HTML
 
 import concurrent.futures
 
+import json
 import tqdm
+from pathlib import Path
+
+class RDPattern(BaseModel):
+    pattern_name: str = Field(..., description="Name of the pattern")
+    d_a: float = Field(0.2097, description="Diffusion rate for A")
+    d_b: float = Field(0.1050, description="Diffusion rate for B")
+    f: float = Field(0.0540, description="Feed rate to use. If a mask is provided, this value is multiplied by the mask.")
+    k: float = Field(0.0620, description="Kill rate. If a mask is provided, this value is multiplied by the mask.")
+
+class RDPatternLibrary:
+    """
+    Library of reaction-diffusion patterns
+    Presets based on Robert Munafo's (mrob's) WebGL
+    Gray-Scott Explorer:  https://mrob.com/pub/comp/xmorphia/ogl/index.html
+    and Jason Webb: https://github.com/jasonwebb/reaction-diffusion-playground/
+    """
+    patterns = []
+
+    @staticmethod
+    def load_patterns_from_file(file_path: str):
+        with open(file_path, 'r') as file:
+            data = json.load(file)
+            RDPatternLibrary.patterns = [RDPattern(**pattern) for pattern in data["patterns"]]
+
+    @staticmethod
+    def get_pattern_by_name(pattern_name: str) -> Union[RDPattern, None]:
+        for pattern in RDPatternLibrary.patterns:
+            if pattern.pattern_name == pattern_name:
+                return pattern.model_dump()
+        return None
+    
+    @staticmethod
+    def get_pattern_names() -> list:
+        return [pattern.pattern_name for pattern in RDPatternLibrary.patterns]
+
+
+# Load patterns from the file
+RDPatternLibrary.load_patterns_from_file(Path(__file__).parent / "patterns.json")
+
+
+
+
+
 
 class ReactionDiffusionConfig(BaseModel):
     size: int = Field(256, description="Size of the grid")
@@ -73,7 +117,7 @@ class ReactionDiffusion():
                 raise ValueError("No initial configuration provided and no type selected. Please provide an initial configuration or select a type of initial configuration to generate.")
 
             A = torch.ones(size=[self.c.size, self.c.size], dtype=torch.float)
-            B = torch.zeros(size=[self.size, self.c.size], dtype=torch.float)
+            B = torch.zeros(size=[self.c.size, self.c.size], dtype=torch.float)
 
             if type == "empty":
                 pass
@@ -191,7 +235,7 @@ class ReactionDiffusion():
         ax[0].set_title(f"Reaction-Diffusion. Max value: {x.max().item():.2f}, Min value: {x.min().item():.2f}")
         plt.show()
 
-    def show_animation(self, cached_steps: list, interval: int=50, show: Literal["A", "B"]="B") -> HTML:
+    def show_animation(self, cached_steps: list, interval: int=50, show: Literal["A", "B"]="B", mask=None) -> HTML:
         """
             Given a list of cached steps, show an animation of the simulation
 
@@ -203,10 +247,12 @@ class ReactionDiffusion():
         def process_step(step):
             a, b = step
             to_show = a if show == "A" else b
+            if mask:
+                to_show = to_show * mask
             im = ax[0].imshow(to_show, cmap="viridis")
             ax[0].axis("off")
             ax[0].set_aspect("equal")
-            ax[0].set_title(f"Reaction-Diffusion. Max value: {to_show.max().item():.2f}, Min value: {to_show.min().item():.2f}")
+            ax[0].set_title(f"Step {step} Max value: {to_show.max().item():.2f}, Min value: {to_show.min().item():.2f}")
             return [im]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
