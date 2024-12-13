@@ -19,29 +19,49 @@ class TorchCPMAdhesionConstraint(TorchCPMConstrint):
             Local energy is given by the sum of the adhesion matrix values between the neighbors (that are not the current one).
             This function simulate the adhesion of every input pixel as if they were changed to a given id.
         """
+        source_pixels = source_pixels.int()
+        current_neighbors = current_neighbors.int()
         # Store the adhesion coefficients for each src_pixel -> target_pixel pair
         adhesion_coeffs = torch.zeros_like(current_neighbors)
-        for src_id in source_pixels.unique():
+
+        # current_neighbors contains the cell_id, not cell_type
+        # Boundaries between different CELLS
+        diff_nbs_cell_id = current_neighbors*(current_neighbors != source_pixels[0].unsqueeze(0))
+        # Map each cell_id to its cell_type
+        diff_nbs_cell_type = torch.zeros_like(diff_nbs_cell_id)
+        # Get the source pixel id
+        for cell_id in diff_nbs_cell_id.unique():
+            if cell_id == 0:
+                # Unselected
+                continue
+            
+            # For each cell id, replace the cell id with the corresponding cell_type value from source_pixels (that is, the channel 1 from where the cell_id is the one selected, using a max operation to aggregate)
+            cell_type_of_this_id = source_pixels[1, source_pixels[0]==cell_id].max()
+            diff_nbs_cell_type = torch.where(diff_nbs_cell_id == cell_id, cell_type_of_this_id, diff_nbs_cell_type)
+
+        # Now replace each cell_type of the neigbors with the adhesion coefficient [src_type, trg_type]
+
+        for src_type in source_pixels[1].unique():
             # We want to get the neighbors where:
             # - corresponds to a given source pixel (in x,y)
             # - have a different value from the source pixel
             # - have a given target pixel value
-            source_mask = (source_pixels == src_id)
             
-            for trg_id in current_neighbors.unique():
-                if trg_id == src_id or trg_id == 0 or src_id == 0:
-                    # Skip the same pixel and unchanged pixels
-                    #print(f"Skipping {src_id} -> {trg_id}")
+            # Spatially select only the current src_type
+            source_mask = (source_pixels[1] == src_type)
+            
+            for trg_type in diff_nbs_cell_type.unique():
+                if trg_type == 0 or src_type == 0:
+                    # Unselected pixels
                     continue
+
                 # Map the background (-1) to first index of the adhesion matrix
-                s_idx = 0 if src_id < 0 else src_id
-                t_idx = 0 if trg_id < 0 else trg_id
-                adh_coeff = adhesion_matrix[s_idx, t_idx]
+                adh_coeff = adhesion_matrix[max(src_type, 0), max(trg_type, 0)]
                 
-                masked_neighbors = source_mask.unsqueeze(0) & (current_neighbors == trg_id)
-                #print(f"{src_id} -> {trg_id}: {adh_coeff}, setting value for {masked_neighbors.sum()} pixels")
+                # FIXME: It is correct to pick the first dimension here?
+                masked_neighbors = source_mask.unsqueeze(0) & (diff_nbs_cell_type == trg_type)
                 adhesion_coeffs = adhesion_coeffs.where(masked_neighbors, adh_coeff)
-                #plot_tensors([adhesion_coeffs[c] for c in range(8)])
+                
 
         return adhesion_coeffs.sum(axis=0)
 
@@ -94,14 +114,15 @@ class TorchCPMVolumeConstraint(TorchCPMConstrint):
                 neighbors (torch.Tensor): Tensor of shape [8, h, w] containing the neighbors values of each pixel.
                 lambda_adhesion (float): Weight of the adhesion energy in the total
         """
-        preferred_volumes = self.config.preferred_volumes
+        # Add the background to the preferred volumes
+        preferred_volumes = torch.concat([torch.zeros([1]), self.config.preferred_volumes], axis=0)
         lambda_volume = self.config.lambda_volume
 
         current_volumes = get_volume_map(current_state)
         predicted_volumes = get_volume_map(predicted_state)
-        preferred_current_volumes = map_value_to_objects(current_state, preferred_volumes)
-        preferred_predicted_volumes = map_value_to_objects(predicted_state, preferred_volumes)
-
+        # Pass the first channel of the volume map (class_id) to the the preferred volumes to.
+        preferred_current_volumes = map_value_to_objects(current_state[1].int(), preferred_volumes)
+        preferred_predicted_volumes = map_value_to_objects(predicted_state[1].int(), preferred_volumes)
         current_energy = self.h(volumes=current_volumes, preferred_volumes=preferred_current_volumes, lambda_volume=lambda_volume)
         predicted_energy = self.h(volumes=predicted_volumes, preferred_volumes=preferred_predicted_volumes, lambda_volume=lambda_volume)
         
@@ -128,13 +149,14 @@ class TorchCPMLocalPerimeterConstraint(TorchCPMConstrint):
                  predicted_state: torch.Tensor, 
                  predicted_diff_nbs: torch.Tensor):
         
-        preferred_perimeters = self.config.preferred_perimeters
+        preferred_perimeters = self.config.preferred_local_perimeters
+        preferred_perimeters = torch.concat([torch.zeros([1]), preferred_perimeters], axis=0).int()
 
         # Perimeter contribution of each pixel
         curr_local_perimeter = current_diff_nbs.sum(dim=0)
         # Perimeter contribution of each pixel
         pred_local_perimeter = predicted_diff_nbs.sum(dim=0)
         
-        preferred_source_perimeters = map_value_to_objects(current_state, preferred_perimeters)
-        preferred_target_perimeters = map_value_to_objects(predicted_state, preferred_perimeters)
+        preferred_source_perimeters = map_value_to_objects(current_state[1].int(), preferred_perimeters)
+        preferred_target_perimeters = map_value_to_objects(predicted_state[1].int(), preferred_perimeters)
         return self.h(curr_local_perimeter, preferred_source_perimeters) - self.h(pred_local_perimeter, preferred_target_perimeters)

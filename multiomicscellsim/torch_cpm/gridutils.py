@@ -26,7 +26,7 @@ def plot_tensors(tensors: list, titles: list = None, cmap='viridis'):
     fig.tight_layout()
     plt.show()
 
-def vectorized_moore_neighborhood(x:torch.Tensor, neighborhood_type=8, background_value=-1):
+def vectorized_moore_neighborhood(x:torch.Tensor, neighborhood_type=8, background_value=-1, cell_id_channel=0):
     """
         This is an vectorized implementation of the Moore neighborhood.
         The neighbor value in each direction is stored in a separate channel c.
@@ -34,13 +34,18 @@ def vectorized_moore_neighborhood(x:torch.Tensor, neighborhood_type=8, backgroun
         neighborhood_type is 8, or starting from the top if neighborhood_type is 4.
 
         Args:
-            x (torch.Tensor): Input tensor of shape [h, w].
+            x (torch.Tensor): Input tensor of shape [h, w] or [l, h, w].
             neighborhood_type (int): Type of neighborhood to use. Can be 4 or 8.
+            background_value (int): Value to use for the background.
+            cell_id_channel (int): Channel to use for the cell id if x is a tensor of shape [l, h, w].
         
         Returns:
             torch.Tensor: Tensor of shape [c, h, w] containing the neighbors value of each pixel.
 
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     if neighborhood_type == 8:
         shifts = [[1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]]
     else:
@@ -48,29 +53,47 @@ def vectorized_moore_neighborhood(x:torch.Tensor, neighborhood_type=8, backgroun
     # Pad -> Roll in every direction -> Unpad -> Stack
     return torch.stack([torch.roll(F.pad(x, (1, 1, 1, 1), value=background_value), shifts=shift, dims=(0, 1))[1:-1, 1:-1] for shift in shifts], dim=0)
     
-def get_frontiers(x:torch.Tensor):
+def get_frontiers(x:torch.Tensor, cell_id_channel=0):
     """
         Returns a mask of the inner perimeters of the objects in the input tensor.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape [h, w] or [l, h, w].
+            cell_id_channel (int): Channel to use for the cell id if x is a tensor of shape [l, h, w].
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     n = vectorized_moore_neighborhood(x)
     return torch.any(n != x.unsqueeze(0), dim=0)
 
-def get_differet_neigborhood_mask(x:torch.Tensor) -> torch.Tensor:
+def get_differet_neigborhood_mask(x:torch.Tensor, cell_id_channel=0) -> torch.Tensor:
     """
-        Given a tensor x of shape [h, w], returns a tensor of shape [8, h, w] where each channel c
+        Given a tensor x of shape [h, w], or [l, h, w], returns a tensor of shape [8, h, w] where each channel c
         contains the mask of the neighbors of each pixel in x that are different from the pixel itself.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape [h, w] or [l, h, w].
+            cell_id_channel (int): Channel to use for the cell id if x is a tensor of shape [l, h, w].
+        
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     n = vectorized_moore_neighborhood(x)
     return n != x.unsqueeze(0)
 
-def get_different_neighbors(x:torch.Tensor):
+def get_different_neighbors(x:torch.Tensor, cell_id_channel=0):
     """
         Returns a tensor of shape [8, h, w] where each channel c contains the neighbors of each pixel in x that are different from the pixel itself.
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     n = vectorized_moore_neighborhood(x)
     return (n != x.unsqueeze(0)).int()*n
 
-def get_different_neigbor_sum(x:torch.Tensor):
+def get_different_neigbor_sum(x:torch.Tensor, cell_id_channel=0):
     """
         Returns a map that for each pixel stores the number of different neighbors.
 
@@ -80,13 +103,19 @@ def get_different_neigbor_sum(x:torch.Tensor):
         Returns:
             torch.Tensor: Tensor of shape [h, w] containing the number of different neighbors for each pixel
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     n = vectorized_moore_neighborhood(x)
     return torch.sum(n != x.unsqueeze(0), dim=0)
 
-def sum_over_objects(x:torch.Tensor, neighbors: torch.Tensor):
+def sum_over_objects(x:torch.Tensor, neighbors: torch.Tensor, cell_id_channel=0):
     """
         Returns a map that for each pixel store the sum of the neighbors values (along the first dimension) of the object it belongs to.
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     sums = torch.zeros_like(x, torch.float)
     for obj in torch.unique(x):
         if obj == 0:
@@ -94,10 +123,12 @@ def sum_over_objects(x:torch.Tensor, neighbors: torch.Tensor):
         sums[x == obj] = neighbors[x == obj].sum(dim=0)
     return sums
 
-def get_volume_map(x:torch.Tensor):
+def get_volume_map(x:torch.Tensor, cell_id_channel=0):
     """
         Return a map that for each pixel store the volume of the object it belongs to.
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
     volumes = torch.zeros_like(x)
     for obj in torch.unique(x):
         if obj <= 0:
@@ -105,10 +136,12 @@ def get_volume_map(x:torch.Tensor):
         volumes[x == obj] = (x == obj).sum()
     return volumes
 
-def get_volume(x:torch.Tensor):
+def get_volume(x:torch.Tensor, cell_id_channel=0):
     """
         Returns the total volume of each object in the input tensor.
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
     volumes = torch.zeros(size=[x.unique().max()+1])
 
     for obj in torch.unique(x):
@@ -117,7 +150,7 @@ def get_volume(x:torch.Tensor):
         volumes[obj] = (x == obj).sum()
     return volumes
 
-def get_perimeter_map(x:torch.Tensor, current_neighbors: torch.Tensor=None):
+def get_perimeter_map(x:torch.Tensor, current_neighbors: torch.Tensor=None, cell_id_channel=0):
     """
         Calculate the perimeter for each different object in the given tensor.
         If current_neighbors is provided, computation is skipped.
@@ -128,6 +161,8 @@ def get_perimeter_map(x:torch.Tensor, current_neighbors: torch.Tensor=None):
         Returns:
             A tensor [H, W] in which each object in x is assigned the value of its perimeter (for every pixel).
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
     if current_neighbors is None:
         current_neighbors = vectorized_moore_neighborhood(x)
     perimeters = torch.zeros_like(x)
@@ -138,7 +173,7 @@ def get_perimeter_map(x:torch.Tensor, current_neighbors: torch.Tensor=None):
         perimeters[x == obj] = pixelwise_perimeters[x == obj].sum()
     return perimeters
 
-def get_adhesion_map(x:torch.Tensor, current_neighbors: torch.Tensor, adhesion_matrix: torch.Tensor):
+def get_adhesion_map(x:torch.Tensor, current_neighbors: torch.Tensor, adhesion_matrix: torch.Tensor, cell_id_channel=0):
     """
         Gets the adhesion map for each object in the input tensor.
 
@@ -148,6 +183,8 @@ def get_adhesion_map(x:torch.Tensor, current_neighbors: torch.Tensor, adhesion_m
         Returns:
             torch.Tensor: Tensor of shape [h, w] containing the adhesion values for each object.
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
     adhesions = torch.zeros_like(current_neighbors, dtype=torch.float)
     for s_val in torch.unique(x):
         for t_val in torch.unique(current_neighbors):
@@ -158,76 +195,25 @@ def get_adhesion_map(x:torch.Tensor, current_neighbors: torch.Tensor, adhesion_m
             adhesions[(x.unsqueeze() == s_val)&(current_neighbors == t_val)] = adhesion_matrix[s_idx, t_idx]
     return adhesions
 
-def map_value_to_objects(x:torch.Tensor, values:torch.Tensor):
+def map_value_to_objects(x:torch.Tensor, values:torch.Tensor, cell_id_channel=0):
     """
         Given a tensor x (either in shape [h, w] or [c, h, w]) containing objects ids and a tensor values of len(torch.unique(x)),
         returns a tensor of the same shape as x where each object is assigned the value
         corresponding to its label in values.
     """
+    if x.ndim == 3:
+        x = x[cell_id_channel]
+
     result = torch.zeros_like(x, dtype=torch.float)
     for obj in torch.unique(x):
         if obj == 0 or obj == -1:
             continue
         result[x == obj] = values[obj]
     return result
-
-
-def calc_energy_delta_volume(source_pixels: torch.Tensor, target_pixels: torch.Tensor, preferred_volumes: torch.Tensor):
-    """
-        Calculates the energy difference of the system if the source pixels are changed to the target pixels.
-    """
-
-    def h(volumes, preferred_volumes, gains, lambda_volume=1.0):
-        """
-            Energy function that penalizes the difference between the current volume and the preferred volume
-        """
-        v_diff = preferred_volumes - (volumes + gains)
-        return lambda_volume*(v_diff**2)
-
-    current_volume_source = get_volume_map(source_pixels)
-    current_volume_target = get_volume_map(target_pixels)
-    preferred_volumes_source = map_value_to_objects(source_pixels, preferred_volumes)
-    preferred_volumes_target = map_value_to_objects(target_pixels, preferred_volumes)
-
-    # Calculate the volume gain based on source and target pixels
-    # The cell of source pixels are expanding, so they get one more volume unit
-    delta_sources = h(current_volume_source, preferred_volumes_source, 1) - h(current_volume_source, preferred_volumes_source, 0)
-    # The cell of target pixels are shrinking, so they lose one volume unit
-    delta_targets = h(current_volume_target, preferred_volumes_target, -1) - h(current_volume_target, preferred_volumes_target, 0)
-
-    return delta_sources + delta_targets
-
-
-
-
-def calc_energy_delta_local_perimeter(current_state: torch.Tensor, current_diff_nbs: torch.Tensor, predicted_state: torch.Tensor, predicted_diff_nbs: torch.Tensor, preferred_perimeters: torch.Tensor):
-    """
-        Imposes a local perimeter constraint on each border pixel. It can be used to control the roughness of the object borders.
-
-    """
-
-    def h(current_perimeters: torch.Tensor, preferred_perimeters: torch.Tensor, lambda_perimeter=1.0):
-        """
-            Function that calculate the energy of the system based on the perimeter of each object.
-        """
-        return lambda_perimeter * (preferred_perimeters - current_perimeters)**2
-    
-    # TODO: Find a way to compute a local energy, for now it is computed globally so each pixel is given the same energy in the output
-
-    # Perimeter contribution of each pixel
-    curr_local_perimeter = current_diff_nbs.sum(dim=0)
-    # Perimeter contribution of each pixel
-    pred_local_perimeter = predicted_diff_nbs.sum(dim=0)
-    
-    preferred_source_perimeters = map_value_to_objects(current_state, preferred_perimeters)
-    preferred_target_perimeters = map_value_to_objects(predicted_state, preferred_perimeters)
-    return h(curr_local_perimeter, preferred_source_perimeters) - h(pred_local_perimeter, preferred_target_perimeters)
-
-
   
-def copy_source_to_neighbors(x: torch.Tensor, source_pixels: torch.Tensor, selected_neighbors: torch.Tensor):
+def copy_source_to_neighbors(x: torch.Tensor, source_pixels: torch.Tensor, selected_neighbors: torch.Tensor, padding_value=-1):
     """
-        Given an image img of shape [h, w], a tensor source_pixels of shape [h, w] containing the source pixels values to copy,
+        Given an image img of shape [h, w] or [l, h, w], a tensor source_pixels of shape [h, w] containing the source pixels values to copy,
         and a tensor selected_neighbors of shape [8, h, w] containing the neighbors to copy the source pixels to,
         returns a new image with the source pixels copied to the selected neighbors where the selected neighbors are differnt from zero.
 
@@ -243,14 +229,42 @@ def copy_source_to_neighbors(x: torch.Tensor, source_pixels: torch.Tensor, selec
     """
 
     shifts = [[1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]]
+    dims = (0, 1) if x.ndim == 2 else (1, 2)
+
     for d in range(8):
         # Roll the original image to match the neigbor direction
-        x = torch.roll(F.pad(x, (1, 1, 1, 1), value=-1), shifts=shifts[d], dims=(0, 1))[1:-1, 1:-1]
+        x = torch.roll(F.pad(x, (1, 1, 1, 1), value=padding_value), shifts=shifts[d], dims=dims)[..., 1:-1, 1:-1] 
         # Copy the source pixels to the selected neighbors
         x = torch.where(selected_neighbors[d] != 0, source_pixels, x)
         # Roll back the image to the original position
-        x = torch.roll(F.pad(x, (1, 1, 1, 1), value=-1), shifts=[-shifts[d][0], -shifts[d][1]], dims=(0, 1))[1:-1, 1:-1]
-    return x, get_different_neighbors(x)
+        x = torch.roll(F.pad(x, (1, 1, 1, 1), value=padding_value), shifts=[-shifts[d][0], -shifts[d][1]], dims=dims)[..., 1:-1, 1:-1]
+    return x
+
+def copy_subgrid_to_neighbors(s: torch.Tensor, selected_neighbors: torch.Tensor, padding_value=0):
+    """
+        Given a subgrid of floating points and shape [2, h, w], and a binary mask of tensor selected_neighbors of shape [8, h, w] containing the neighbors to copy the source pixels to,
+        returns a new subgrid with the source pixels copied to the selected neighbors where the selected neighbors are True.
+
+        Args:
+            s (torch.Tensor): Input tensor of shape [2, h, w].
+            selected_neighbors (torch.Tensor): Tensor of shape [8, h, w] containing the neighbors to copy the source pixels to.
+                                               The dimension should be reported clockwise starting from the top left corner.
+
+        Returns:
+            torch.Tensor: Tensor of shape [2, h, w] containing the new subgrid with the source pixels copied to the selected neighbors
+    """
+
+    shifts = [[1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]]
+    dims = (1, 2)
+    original = s.clone()
+    for d in range(8):
+        # Roll the original image to match the neigbor direction
+        s = torch.roll(F.pad(s, (1, 1, 1, 1), value=padding_value), shifts=shifts[d], dims=dims)[..., 1:-1, 1:-1] 
+        # Copy the source pixels to the selected neighbors
+        s = torch.where(selected_neighbors[d].bool(), s, original)
+        # Roll back the image to the original position
+        s = torch.roll(F.pad(s, (1, 1, 1, 1), value=padding_value), shifts=[-shifts[d][0], -shifts[d][1]], dims=dims)[..., 1:-1, 1:-1]
+    return s
 
 
 def choose_random_neighbor(x: torch.Tensor):

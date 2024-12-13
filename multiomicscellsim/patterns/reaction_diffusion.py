@@ -4,84 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from pydantic import BaseModel, Field
 from typing import Literal, Union
 from IPython.display import HTML
 
 import concurrent.futures
 
-import json
-import tqdm
-from pathlib import Path
+from tqdm import tqdm
 
-class RDPattern(BaseModel):
-    pattern_name: str = Field(..., description="Name of the pattern")
-    d_a: float = Field(0.2097, description="Diffusion rate for A")
-    d_b: float = Field(0.1050, description="Diffusion rate for B")
-    f: float = Field(0.0540, description="Feed rate to use. If a mask is provided, this value is multiplied by the mask.")
-    k: float = Field(0.0620, description="Kill rate. If a mask is provided, this value is multiplied by the mask.")
-
-class RDPatternLibrary:
-    """
-    Library of reaction-diffusion patterns
-    Presets based on Robert Munafo's (mrob's) WebGL
-    Gray-Scott Explorer:  https://mrob.com/pub/comp/xmorphia/ogl/index.html
-    and Jason Webb: https://github.com/jasonwebb/reaction-diffusion-playground/
-    """
-    patterns = []
-
-    @staticmethod
-    def load_patterns_from_file(file_path: str):
-        with open(file_path, 'r') as file:
-            data = json.load(file)
-            RDPatternLibrary.patterns = [RDPattern(**pattern) for pattern in data["patterns"]]
-
-    @staticmethod
-    def get_pattern_by_name(pattern_name: str) -> Union[RDPattern, None]:
-        for pattern in RDPatternLibrary.patterns:
-            if pattern.pattern_name == pattern_name:
-                return pattern.model_dump()
-        return None
-    
-    @staticmethod
-    def get_pattern_names() -> list:
-        return [pattern.pattern_name for pattern in RDPatternLibrary.patterns]
-
-
-# Load patterns from the file
-RDPatternLibrary.load_patterns_from_file(Path(__file__).parent / "patterns.json")
-
-
-
-
-
-
-class ReactionDiffusionConfig(BaseModel):
-    size: int = Field(256, description="Size of the grid")
-    steps: int = Field(5000, description="Number of steps to run the simulation")
-    initial_configuration: Union[None, torch.Tensor] = Field(None, description="Initial configuration of the grid. Can be used to set a custom initial configuration.")
-    initial_configuration_type: Union[Literal["empty", "random_pixels", "square"], None] = Field(None, description="Type of initial configuration to generate. Required if no initial_configuration is provided.")
-    initial_pixels_perc: float = Field(0.05, description="Percentage of initial pixels with A=0 to use if no initial configuration is provided and the random_pixels option is selected in generate_initial_configuration")
-    initial_square_size_perc: float = Field(0.1, description="Size of the square to use if no initial configuration is provided and the square option is selected in generate_initial_configuration")
-
-    mask_output: torch.Tensor = Field(None, description="Mask to apply to the output of the simulation.")
-
-    delta_t: float = Field(1.0, description="Time step")
-    plot_every: int = Field(50, description="Plot every N steps")
-    convergence_threshold: float = Field(1e-5, description="Convergence threshold")
-    
-    model: Literal["Gray-Scott"] = Field("Gray-Scott", description="Model to use")
-
-    d_A: float = Field(0.2097, description="Diffusion rate for A")
-    d_B: float = Field(0.1050, description="Diffusion rate for B")
-    f: float = Field(0.0540, description="Feed rate to use. If a mask is provided, this value is multiplied by the mask.")
-    k: float = Field(0.0620, description="Kill rate. If a mask is provided, this value is multiplied by the mask.")
-    f_mask: Union[None, torch.Tensor] = Field(None, description="Feed rate mask. Gets multiplied by the feed rate scalar.")
-    k_mask: Union[None, torch.Tensor] = Field(None, description="Kill rate mask. Gets multiplied by the kill rate scalar.")
-
-    # Allow arbitrary types to be used in the model (e.g. torch.Tensor)
-    class Config:
-        arbitrary_types_allowed = True
+from .config import ReactionDiffusionConfig
 
 
 class ReactionDiffusion():
@@ -155,7 +85,32 @@ class ReactionDiffusion():
         kernel = kernel.unsqueeze(0).unsqueeze(0)
         return kernel
     
-    def _gray_scott(self, a, b):
+    def run_on_cpm_grid(self, grid: torch.Tensor, steps: int, f: float, k: float, d_a: float, d_b: float):
+        """
+           Run simulation on a CPM grid for the given number of steps
+
+              Args:
+                grid (torch.Tensor): Grid to run the simulation on. Should be [2, h, w], where the channels are: [A, B]
+                steps (int): Number of steps to run the simulation
+                f (float): Feed rate
+                k (float): Kill rate
+                d_a (float): Diffusion rate for A
+                d_b (float): Diffusion rate for B
+        """
+
+        a = grid[0]
+        b = grid[1]
+
+        for t in tqdm(range(steps), leave=False):
+            a, b = self._gray_scott(a, b, f, k, d_a, d_b)
+        
+        grid[0] = a
+        grid[1] = b
+        return grid
+        
+        
+
+    def _gray_scott(self, a: torch.Tensor, b: torch.Tensor, f_grid: torch.Tensor, k_grid: torch.Tensor, d_a: float, d_b: float, delta_t: float=1.0):
         """
         Gets a gray-scott model update for the a and b chemicals
         """
@@ -171,8 +126,8 @@ class ReactionDiffusion():
         reaction = a * (b**2)
         
         # Update equations
-        A_update = (self.c.d_A * A_diffusion - reaction + self.f_grid * (1 - a))*self.c.delta_t
-        B_update = (self.c.d_B * B_diffusion + reaction - (self.f_grid + self.k_grid) * b)*self.c.delta_t
+        A_update = (d_a * A_diffusion - reaction + f_grid * (1 - a))*delta_t
+        B_update = (d_b * B_diffusion + reaction - (f_grid + k_grid) * b)*delta_t
 
         A = a + A_update
         B = b + B_update
@@ -185,17 +140,17 @@ class ReactionDiffusion():
         """
         return (a.mean().item() < self.c.convergence_threshold) and (b.mean().item() < self.c.convergence_threshold)
 
-    def compute_model(self, a, b):
+    def compute_model_from_config(self, a, b):
         if self.c.model == "Gray-Scott":
-            return self._gray_scott(a, b)
+            return self._gray_scott(a, b, self.f_grid, self.k_grid, self.c.d_A, self.c.d_B, self.c.delta_t)
     
-    def yield_step(self, a, b):
+    def yield_step_from_config(self, a, b):
         """
         Yield the next step of the model
         """
         for t in range(self.c.steps):
             # print(f"Step {t}")
-            A, B = self.compute_model(a, b)
+            A, B = self.compute_model_from_config(a, b)
             yield A, B
             if self._stop_condition(A, B):
                 break
@@ -208,8 +163,8 @@ class ReactionDiffusion():
         steps = [self.init_simulation()]
         a, b = steps[0]
 
-        for t in tqdm.tqdm(range(self.c.steps)):
-            a, b = self.compute_model(a, b)
+        for t in tqdm(range(self.c.steps)):
+            a, b = self.compute_model_from_config(a, b)
             if cache_steps:
                 steps.append((a, b))
             if plot_every:
@@ -256,6 +211,6 @@ class ReactionDiffusion():
             return [im]
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            ims = list(tqdm.tqdm(executor.map(process_step, cached_steps[::interval]), total=len(cached_steps[::interval])))
+            ims = list(tqdm(executor.map(process_step, cached_steps[::interval]), total=len(cached_steps[::interval])))
         return animation.ArtistAnimation(fig, ims, interval=interval, blit=True)
          
