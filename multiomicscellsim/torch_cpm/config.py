@@ -31,7 +31,7 @@ class TorchCPMConfig(BaseModel):
     
     run_rd_every: int = Field(100, description="Number of steps to run the reaction diffusion simulation.")
     rd_steps: int = Field(10000, description="Number of steps to run the reaction diffusion simulation.")
-
+    rd_warmup_steps: int = Field(1000, description="Number of steps to run the reaction diffusion simulation.")
 
     class Config:
         arbitrary_types_allowed = True

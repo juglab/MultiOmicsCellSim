@@ -37,6 +37,9 @@ class TorchCPM():
         self.constraints = {"adhesion": TorchCPMAdhesionConstraint(config), 
                             "volume": TorchCPMVolumeConstraint(config),
                             "perimeter": TorchCPMLocalPerimeterConstraint(config)}
+        
+        # Get a reaction diffusion simulation with standard parameters
+        self.rd = ReactionDiffusion(ReactionDiffusionConfig())
 
     def draw_cell(self, x: int, y: int, cell_type: int, size: int = 11):
         """
@@ -51,8 +54,9 @@ class TorchCPM():
         self.grid[1, x-size:x+size, y-size:y+size] = cell_type
         # Set the subcellular pattern
         # This will be overwritten by the reaction diffusion simulation
-        self.subgrid[1, x-size:x+size, y-size:y+size] = 1.0
-        self.subgrid[0] = 1.0-self.subgrid[1]
+        # The cell starts full of A, while B fills the stroma
+        self.subgrid[0, x-size:x+size, y-size:y+size] = (torch.rand(2*size, 2*size) > .5).float()
+        self.subgrid[1] = 1.0-self.subgrid[0]
 
 
 
@@ -92,8 +96,7 @@ class TorchCPM():
         """
         
 
-        # Get a reaction diffusion simulation with standard parameters
-        rd = ReactionDiffusion(ReactionDiffusionConfig())
+        
 
         for i in tqdm(range(max_steps)):
             x = self.grid
@@ -144,73 +147,53 @@ class TorchCPM():
             
             # Run a reaction diffusion simulation on the cells
             if self.config.run_rd_every and (i % self.config.run_rd_every == 0 or i == max_steps - 1):
+                steps = self.config.rd_steps if i > 0 else self.config.rd_warmup_steps
+                x_after, s_after = self.run_reaction_diffusion_on_cells(x_after, s_after, self.config.rd_steps)
                 
-
-                for cell_type_id in x_after[1].int().unique():
-                    # Get configuration for the cell type
-                    if cell_type_id == 0:
-                        continue
-                    cell_type_config = self.config.cell_types[cell_type_id-1]
-                    rd_params = cell_type_config.subcellular_pattern
-                    if rd_params is None:
-                        continue
-                    
-                    for cell_id in x_after[:, x_after[1]==cell_type_id].unique():
-                        if cell_id <= 0:
-                            continue
-
-                        crop_mask, (start_row, end_row, start_col, end_col) = smallest_square_crop(x_after[0]==cell_id)
-
-                        # TODO: Run this in batches
-                        # Run the reaction diffusion simulation
-                        rd_output = rd.run_on_cpm_grid(s_after[:, start_row:end_row, start_col:end_col].clone(), 
-                                                  steps=self.config.rd_steps, 
-                                                  f=rd_params.f, 
-                                                  k=rd_params.k, 
-                                                  d_a=rd_params.d_a, 
-                                                  d_b=rd_params.d_b)
-        
-
-                        # Paste back the cell into the subcellular grid, preserving areas that are not part of the cell (if cell is round then the corners must keep the original value)
-                        s_after[0, start_row:end_row, start_col:end_col] = torch.where(crop_mask, rd_output[0], s_after[0, start_row:end_row, start_col:end_col])
-                        s_after[1, start_row:end_row, start_col:end_col] = torch.where(crop_mask, rd_output[1], s_after[1, start_row:end_row, start_col:end_col])
-                       
             yield x_after, s_after
             self.grid = x_after
             self.subgrid = s_after
 
 
-    def run_reaction_diffusion_on_cells(self):
-        """
-            Run a reaction diffusion simulation on a cell.
-        """
-        # TODO: get a configuration based on cell_type. 
-        # TODO: Implement a way to pass A and B to the simulation and do a certain number of steps
+    def run_reaction_diffusion_on_cells(self, grid_state: torch.Tensor, subgrid_state: torch.Tensor, steps: int):
 
-        for cell_id in self.grid.unique():
-            if cell_id <= 0:
+        for cell_type_id in grid_state[1].int().unique():
+            # Get configuration for the cell type
+            if cell_type_id == 0:
                 continue
-            crop, (start_row, end_row, start_col, end_col) = smallest_square_crop(self.grid==cell_id)
-            rd_config = {
-                        "size": crop.size(0),
-                        "steps": 10000,
-                        "initial_configuration_type": None,
-                        "initial_configuration": crop.float(),
-                        "initial_pixels_perc": 0.10,
-                        "initial_square_size_perc": 0.1,
-                        "delta_t": 1.0,
-                        "plot_every": 50,
-                        "convergence_threshold": 1e-5,
-                        "model": "Gray-Scott",
-                        "d_A": 0.2306,
-                        "d_B": 0.1050
-                    }
-            # Apply the f, k parameters from the pattern
-            rd_config.update(self.config.cell_types_patterns[cell_id])
-            rd = ReactionDiffusion(ReactionDiffusionConfig(**rd_config))
-            a, b = rd.run_until_convergence()
-            # Paste back the cell into the subcellular grid, preserving areas that are not part of the cell (if cell is round then the corners must keep the original value)
-            self.subcellular_grid[0, start_row:end_row, start_col:end_col] = torch.where(crop, a, self.subcellular_grid[0, start_row:end_row, start_col:end_col])
-            self.subcellular_grid[1, start_row:end_row, start_col:end_col] = torch.where(crop, b, self.subcellular_grid[0, start_row:end_row, start_col:end_col])
+            cell_type_config = self.config.cell_types[cell_type_id-1]
+            rd_params = cell_type_config.subcellular_pattern
+            if rd_params is None:
+                continue
+            
+            for cell_id in grid_state[:, grid_state[1]==cell_type_id].unique():
+                if cell_id <= 0:
+                    continue
+
+                crop_mask, (start_row, end_row, start_col, end_col) = smallest_square_crop(grid_state[0]==cell_id)
+
+                # Mask the outer area of the cell to avoid including surrounding cells in the simulation
+                # The content of A and B inside the cell (crop_mask==1.0) is always preserved
+                # Outside the cell is always 0.0 for A and 1.0 for B
+                
+                cropped_subgrid = torch.stack([
+                    subgrid_state[0, start_row:end_row, start_col:end_col]*crop_mask,
+                    subgrid_state[1, start_row:end_row, start_col:end_col]*crop_mask + (1.0-crop_mask.float())
+                ], dim=0)
+
+                # TODO: Run this in batches
+                # Run the reaction diffusion simulation
+                rd_output = self.rd.run_on_cpm_grid(cropped_subgrid.clone(), 
+                                            steps=steps, 
+                                            f=rd_params.f, 
+                                            k=rd_params.k, 
+                                            d_a=rd_params.d_a, 
+                                            d_b=rd_params.d_b)
 
 
+                # Paste back the cell into the subcellular grid, preserving areas that are not part of the cell (if cell is round then the corners must keep the original value)
+                updated_A = torch.where(crop_mask, rd_output[0], subgrid_state[0, start_row:end_row, start_col:end_col])
+                updated_B = torch.where(crop_mask, rd_output[1], subgrid_state[1, start_row:end_row, start_col:end_col])
+                subgrid_state[0, start_row:end_row, start_col:end_col] = updated_A
+                subgrid_state[1, start_row:end_row, start_col:end_col] = updated_B
+        return grid_state, subgrid_state
