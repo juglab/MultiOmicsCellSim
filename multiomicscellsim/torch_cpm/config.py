@@ -16,6 +16,21 @@ class TorchCPMCellType(BaseModel):
     preferred_local_perimeter: int = Field(8, description="Preferred local perimeter for this cell type. Used with LocalPerimeterConstraint. 3: edges try to be flat and either vertical or horizontal. Greater numbers increases rougness or cuvature")
     subcellular_pattern: Union[None, RDPatternConfig] = Field(None, description="Subcellular pattern to use for this cell type. If None, no subcellular simulation will be run for this cell type.")
     
+
+    @staticmethod
+    def build_constant_adhesion_vector(x: float, this_id:int, n_types:int) -> torch.Tensor:
+        """
+            Helper for getting an adhesion vector with the same value for each cell_type.
+            By default sets self adhesion to 0.0 (cell tries to not dissolve)
+
+            Args:
+                - x: Adhesion factor towards the other cells
+                - this_id: ID of the current cell_type
+        """
+        adhesion_vector = [x for i in range(1, n_types+1)]
+        adhesion_vector[this_id-1] = 0.0 # Cell tries to avoid dissolving
+        return torch.Tensor(adhesion_vector)
+    
     class Config:
         arbitrary_types_allowed = True
 
@@ -29,9 +44,10 @@ class TorchCPMConfig(BaseModel):
     lambda_volume: float = Field(1.0, description="Weight for the volume energy.")
     lambda_perimeter: float = Field(1.0, description="Weight for the perimeter energy.")
     
-    run_rd_every: int = Field(100, description="Number of steps to run the reaction diffusion simulation.")
-    rd_steps: int = Field(10000, description="Number of steps to run the reaction diffusion simulation.")
-    rd_warmup_steps: int = Field(1000, description="Number of steps to run the reaction diffusion simulation.")
+    max_cpm_steps: int = Field(500, description="Maximum number of CPM steps to run")
+    run_rd_every: int = Field(100, description="Number of CPM (cell growith) steps to run between a RD (subcellular dynamics) step.")
+    rd_steps: int = Field(10000, description="Number of reaction diffusion steps to run at each RD phase.")
+    rd_warmup_steps: int = Field(1000, description="Number of warmup steps for reaction diffusion.")
 
     class Config:
         arbitrary_types_allowed = True

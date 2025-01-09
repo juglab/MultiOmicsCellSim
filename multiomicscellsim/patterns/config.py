@@ -28,21 +28,19 @@ class RDPatternLibrary:
             RDPatternLibrary.patterns = [RDPatternConfig(**pattern) for pattern in data["patterns"]]
 
     @staticmethod
-    def get_pattern_by_name(pattern_name: str) -> Union[RDPatternConfig, None]:
+    def get_pattern_by_name(pattern_name: str) -> RDPatternConfig:
         for pattern in RDPatternLibrary.patterns:
             if pattern.pattern_name == pattern_name:
                 return pattern.model_dump()
-        return None
+        raise ValueError(f"Pattern {pattern_name} not found in patterns. Available patterns: {RDPatternLibrary.patterns}")
     
     @staticmethod
     def get_pattern_names() -> list:
         return [pattern.pattern_name for pattern in RDPatternLibrary.patterns]
     
     @staticmethod
-    def get_pattern_by_index(index: int) -> Union[RDPatternConfig, None]:
-        if index < len(RDPatternLibrary.patterns):
-            return RDPatternLibrary.patterns[index]
-        return None
+    def get_pattern_by_index(index: int) -> RDPatternConfig:
+        return RDPatternLibrary.patterns[index]
 
 
 # Load patterns from the file

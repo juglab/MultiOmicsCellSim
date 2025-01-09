@@ -43,13 +43,25 @@ class TorchCPM():
 
     def draw_cell(self, x: int, y: int, cell_type: int, size: int = 11):
         """
-            Draws a cell in the grid.
+            Draws a cell in the grid. Returns the ID of the new cell if succeded, 
+            0 otherwise (i.e., the space of the cell is already occupied)
+
+
         """
         if cell_type not in [cell_type.id for cell_type in self.config.cell_types]:
             raise ValueError(f"Cell type {cell_type} not defined in the configuration.")
         
+        if (self.grid[0, x-size:x+size, y-size:y+size] != -1).any():
+            return 0
+        
+         # Check if the square goes outside the boundaries of the image
+        if (x - size < 0 or x + size > self.grid.shape[1] or 
+            y - size < 0 or y + size > self.grid.shape[2]):
+            return 0
+
         # Add a new cell id (Avoiding 0, which is reserved)
-        self.grid[0, x-size:x+size, y-size:y+size] = max(self.grid[0].max() + 1, 1)
+        cell_id = max(self.grid[0].max() + 1, 1)
+        self.grid[0, x-size:x+size, y-size:y+size] = cell_id
         # Set the cell type
         self.grid[1, x-size:x+size, y-size:y+size] = cell_type
         # Set the subcellular pattern
@@ -58,6 +70,7 @@ class TorchCPM():
         self.subgrid[0, x-size:x+size, y-size:y+size] = (torch.rand(2*size, 2*size) > .5).float()
         self.subgrid[1] = 1.0-self.subgrid[0]
 
+        return cell_id
 
 
     def plot_grid(self):
@@ -90,15 +103,39 @@ class TorchCPM():
         plt.show()
       
 
-    def yield_step(self, max_steps: int):
+    def yield_step(self, yield_every: int = 1):
         """
-            Yields a step of the simulation.
+            Yields results of the simulation.
+
+            A simulation loop is composed of:
+                0: 1 CPM Step
+                1: rd_warmup_steps RD steps
+                2: run_rd_every CPM steps
+                3: rd_steps RD steps
+                4: Every "yield_every" steps, the a result is yielded
+                5: Loop to 2 until max_cpm_steps is reached.           
+                
+            Args:
+                - yield_every: 
+                    Yield a simulation result every n simulation steps. If 0, only returns the last step
+                    The first and the last step are always yielded regardless of this parameter.
+                    Default: 1
+
+            Returns: 
+                - A Generator of simulation results. 
+                    Each simulation result is a Tuple of length 4:
+                        - grid: [torch.Tensor] of shape [2, H, W] and dtype int.
+                            grid[0] contains the cell ids (-1: background, > 0 cells)
+                            grid[1] contains the cell type ids (-1: background, > 0 cell types)
+                        - subgrid: [torch.Tensor] of shape [2, H, W] and dtype float.
+                            subgrid[0] contains the component A of reaction diffusion
+                            subgrid[1] contains the component B of reaction diffusion
+                        - current cpm step (int)
+                        - current rd step (int)
+
         """
-        
-
-        
-
-        for i in tqdm(range(max_steps)):
+        total_rd_steps = 0
+        for cpm_step in tqdm(range(self.config.max_cpm_steps)):
             x = self.grid
             s = self.subgrid
 
@@ -146,17 +183,24 @@ class TorchCPM():
             s_after = copy_source_to_neighbors(s, s, passed_neighbors, padding_value=0.0)
             
             # Run a reaction diffusion simulation on the cells
-            if self.config.run_rd_every and (i % self.config.run_rd_every == 0 or i == max_steps - 1):
-                steps = self.config.rd_steps if i > 0 else self.config.rd_warmup_steps
-                x_after, s_after = self.run_reaction_diffusion_on_cells(x_after, s_after, self.config.rd_steps)
-                
-            yield x_after, s_after
+            should_run_rd = (cpm_step % self.config.run_rd_every) == 0
+            is_last_step = cpm_step == self.config.max_cpm_steps - 1
+            should_yield = (cpm_step % yield_every) == 0 if yield_every > 0 else is_last_step
+            if self.config.run_rd_every and (should_run_rd or is_last_step):
+                rd_steps = self.config.rd_steps if cpm_step > 0 else self.config.rd_warmup_steps
+                x_after, s_after = self.run_reaction_diffusion_on_cells(x_after, s_after, rd_steps)
+                total_rd_steps += rd_steps
+            if should_yield or is_last_step:
+                yield x_after, s_after, cpm_step, total_rd_steps
+
             self.grid = x_after
             self.subgrid = s_after
 
 
     def run_reaction_diffusion_on_cells(self, grid_state: torch.Tensor, subgrid_state: torch.Tensor, steps: int):
-
+        """
+            Isolates each cell in the simulation and run the given reaction diffusion steps on them.
+        """
         for cell_type_id in grid_state[1].int().unique():
             # Get configuration for the cell type
             if cell_type_id == 0:

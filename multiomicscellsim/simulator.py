@@ -1,11 +1,18 @@
 import json
 import logging
 from pathlib import Path
+from typing import List
+import matplotlib.pyplot as plt
+from  matplotlib.animation import FuncAnimation
+
+
 
 from .config import SimulatorConfig
 from .entities import Tissue
 
 from .tissue_generator import TissueGenerator
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the logging level
@@ -67,3 +74,35 @@ class Simulator:
 
         return self.tissue_generator.sample()
     
+    def plot_tissue(self, t: Tissue, axs=None):
+        if axs is None:
+            fig, axs = plt.subplots(2, 2)
+            
+        for i, ax in enumerate(axs.flatten()):
+            ax.clear()
+            if i == 0:
+                ax.imshow(t.cell_grid[0], cmap='viridis')
+                ax.set_title('Cell ID')
+            elif i == 1:
+                ax.imshow(t.cell_grid[1], cmap='viridis')
+                ax.set_title('Cell Type')
+            elif i == 2:
+                ax.imshow(t.subcell_grid[0], cmap='viridis', vmin=0, vmax=1)
+                ax.set_title('Subcellular A')
+            elif i == 3:
+                ax.imshow(t.subcell_grid[1], cmap='viridis', vmin=0, vmax=1)
+                ax.set_title('Subcellular B')
+
+        if axs is None:
+            fig.tight_layout()
+            return fig
+        else:
+            return axs
+
+    def plot_tissues(self, tl: List[Tissue]):
+        fig, axs = plt.subplots(2, 2)
+        update = lambda frame, tiss_list=tl, axes=axs: self.plot_tissue(tiss_list[frame], axs=axes)
+        fig.tight_layout()
+        ani = FuncAnimation(fig, update, frames=len(tl), repeat=False)
+        return ani.to_jshtml()
+

@@ -2,12 +2,12 @@ import torch
 from .config import TorchCPMConfig
 from .gridutils import get_volume_map, map_value_to_objects
 
-class TorchCPMConstrint:
+class TorchCPMConstraint:
     
     def __init__(self, cpm_config: TorchCPMConfig):
         self.config = cpm_config
 
-class TorchCPMAdhesionConstraint(TorchCPMConstrint):
+class TorchCPMAdhesionConstraint(TorchCPMConstraint):
     """
         Energy coefficient that represent the tendency of different cell types to stick together.
     """
@@ -86,7 +86,7 @@ class TorchCPMAdhesionConstraint(TorchCPMConstrint):
         return predicted_energy - current_energy
 
 
-class TorchCPMVolumeConstraint(TorchCPMConstrint):
+class TorchCPMVolumeConstraint(TorchCPMConstraint):
     """
         Energy coefficient that represent the tendency of different cell types to keep a given volume.
     """
@@ -128,7 +128,7 @@ class TorchCPMVolumeConstraint(TorchCPMConstrint):
         
         return predicted_energy - current_energy
 
-class TorchCPMLocalPerimeterConstraint(TorchCPMConstrint):
+class TorchCPMLocalPerimeterConstraint(TorchCPMConstraint):
     """
         Energy coefficient that represent the tendency of different cell membranes to keep a given perimeter.
     """

@@ -11,20 +11,28 @@ import logging
 
 from .utils.geometry import get_arcs_inside_rectangle, map_samples_to_arcs, circle_polar_to_cartesian
 
-from .cpm.simulation import CPM
-from .cpm.cpmentities import CPMCellType, CPMGrid
-from .cpm.constraints import VolumeConstraint, AdhesionConstraint, PerimeterConstraint
+from .torch_cpm.config import TorchCPMCellType, TorchCPMConfig
+from .patterns.config import RDPatternLibrary
+from .torch_cpm.simulation import TorchCPM
+
 from typing import List
+import random
 
 logger = logging.getLogger(__name__)
 
 class TissueGenerator():
+    """
+        Class for generating a tissue, taking as input a simulation configuration.
+        Generates an initial state for the tissue and runs the cell growth algorithm to reach a final state.
+    """
     tissue_config: TissueConfig
     microscopy_config: MicroscopySpaceConfig
 
     def __init__(self, simulator_config: SimulatorConfig):
+        self.simulator_config = simulator_config
         self.tissue_config = simulator_config.tissue_config
         self.microscopy_config = simulator_config.microscopy_space_config
+        self.cpm_config = simulator_config.cpm_config
 
     def _sample_guidelines(self):
         """
@@ -138,7 +146,7 @@ class TissueGenerator():
         y_max = self.microscopy_config.coord_max
 
         # Grid size
-        grid_size = self.microscopy_config.cpm_grid_size
+        grid_size = self.cpm_config.size
 
         # Normalize the coordinates to the range [0, grid_size - 1]
         col = int((x - x_min) / (x_max - x_min) * (grid_size - 1))
@@ -150,25 +158,19 @@ class TissueGenerator():
 
         return row, col
 
-    def sample(self):
+    def sample(self) -> List[Tissue]:
         """
             Sample a new tissue.
         """
-        # Define a grid for the CPM simulation
-        grid = CPMGrid(
-                        size=self.microscopy_config.cpm_grid_size, 
-                        temperature=self.tissue_config.cpm_temperature,
-                        cell_types=self.tissue_config.cpm_cell_types,
-                        constraints=self.tissue_config.cpm_constraints
-                     )
-        
+
+        # Define a CPM Simulation
+        cpm = TorchCPM(self.cpm_config)
+
         # Generate the guidelines (in microscopy space) for spawning cells
         guidelines = self._sample_guidelines()
         cells = []
         for g, gl in enumerate(guidelines):
             centroids = self._sample_cell_centroid(gl)
-
-            invalid_centroids = 0
 
             cpm_cell_centroids = [self._cartesian_to_grid_coords(c[0], c[1]) for c in centroids]
             print(centroids)
@@ -176,30 +178,36 @@ class TissueGenerator():
 
             # Spawn cells in the CPM grid
             for centroid, cpm_cell_coord in zip(centroids, cpm_cell_centroids):
-                new_cpm_cell = grid.draw_cell_at(cpm_cell_coord, cell_type=g+1, size=3)
-                if new_cpm_cell is None:
-                    # FIXME: Handle this better (resampling)
-                    logger.error(f"Could not spawn cell at {cpm_cell_coord}, probably the position is already occupied.")
-                    print(f"FIXME: Could not spawn cell at {cpm_cell_coord}, probably the position is already occupied.")
-                else:
-                    cells.append(Cell(start_coordinates=centroid, cpm_cell=new_cpm_cell))
-            
-        cpm = CPM(grid=grid)
-        steps = cpm.step(max_steps=self.tissue_config.cpm_iterations)
-    
-        # TODO: DEFINE WHICH STEP TO USE FOR THE TISSUE
-        return Tissue(
-            guidelines=guidelines,
-            cells=cells,
-            cpm_grid=grid
-        )
+                cell_type = random.choices(population=self.cpm_config.cell_types,
+                                           weights=self.tissue_config.cell_type_probabilities[g])[0]
+                cell_id = cpm.draw_cell(x=cpm_cell_coord[0], 
+                                          y=cpm_cell_coord[1], 
+                                          cell_type=cell_type.id,
+                                          size=self.tissue_config.initial_cell_size,
+                                          )
+                # cell_id is 0 if write failed
+                if cell_id > 0:
+                    cells.append(Cell(cell_id=cell_id,
+                                      cell_type=cell_type,
+                                      start_coordinates = cpm_cell_coord
+                                      )
+                                 )
 
+        logger.debug(f"Cell Spawned. Running CPM/RD...")
+        
+        tissues = list()
 
-    def render(self):
-        """
-            Rasterize an image representation of the tissue
-        """
-        pass
+        for cell_grid, subcell_grid, cpm_steps, rd_steps in cpm.yield_step(yield_every=self.simulator_config.save_tissue_every):
+            tissue = Tissue(
+                        cpm_step=cpm_steps,
+                        rd_step=rd_steps,
+                        guidelines=guidelines,
+                        cells=cells,
+                        cell_grid=cell_grid,
+                        subcell_grid=subcell_grid
+                    )
+            tissues.append(tissue)
+        return tissues
 
 
     def plot_debug(self, tissue: Tissue, size: int = 8):
