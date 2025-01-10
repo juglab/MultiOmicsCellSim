@@ -4,6 +4,8 @@ import torch
 from functools import cached_property
 from pathlib import Path
 import json
+import random
+
 
 class RDPatternConfig(BaseModel):
     pattern_name: str = Field(..., description="Name of the pattern")
@@ -11,6 +13,12 @@ class RDPatternConfig(BaseModel):
     d_b: float = Field(0.1050, description="Diffusion rate for B")
     f: float = Field(0.0540, description="Feed rate to use. If a mask is provided, this value is multiplied by the mask.")
     k: float = Field(0.0620, description="Kill rate. If a mask is provided, this value is multiplied by the mask.")
+
+    def add_noise(self, to: List, var: float = 0.01):
+        new = self.model_copy().model_dump()
+        for param in to:
+            new[param] = random.gauss(mu=new[param], sigma=var)
+        return RDPatternConfig(**new)
 
 class RDPatternLibrary:
     """
@@ -31,7 +39,7 @@ class RDPatternLibrary:
     def get_pattern_by_name(pattern_name: str) -> RDPatternConfig:
         for pattern in RDPatternLibrary.patterns:
             if pattern.pattern_name == pattern_name:
-                return pattern.model_dump()
+                return pattern
         raise ValueError(f"Pattern {pattern_name} not found in patterns. Available patterns: {RDPatternLibrary.patterns}")
     
     @staticmethod

@@ -12,7 +12,10 @@ from .entities import Tissue
 
 from .tissue_generator import TissueGenerator
 
-
+import random
+import os
+import torch
+import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the logging level
@@ -41,8 +44,27 @@ class Simulator:
             else:
                 self.config = self.load_config(config_fp)
                 logger.debug(f"Loaded configuration from file: {config_fp}")
-
+        self._apply_seed()
         self.tissue_generator = TissueGenerator(simulator_config=self.config)
+
+    def _apply_seed(self):
+        """Apply the seed to all randomness sources."""
+        if self.config.seed is not None:
+            seed = self.config.seed 
+        else:
+            seed = random.randint(0, 2**32 - 1)
+            self.config.seed = seed
+        logger.info(f"Setting random seed to {seed}")
+        random.seed(seed)
+        os.environ['PYTHONHASHSEED'] = str(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.use_deterministic_algorithms(True)  # Enforce deterministic behavior
+        os.environ["OMP_NUM_THREADS"] = "1"  # Single-threaded execution
+        os.environ["MKL_NUM_THREADS"] = "1"
+        torch.set_num_threads(1)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     def load_config(self, config_fp):
         try:

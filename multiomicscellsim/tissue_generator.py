@@ -10,9 +10,6 @@ from matplotlib import patches
 import logging
 
 from .utils.geometry import get_arcs_inside_rectangle, map_samples_to_arcs, circle_polar_to_cartesian
-
-from .torch_cpm.config import TorchCPMCellType, TorchCPMConfig
-from .patterns.config import RDPatternLibrary
 from .torch_cpm.simulation import TorchCPM
 
 from typing import List
@@ -55,15 +52,15 @@ class TissueGenerator():
         # Buffer to allow guidelines centers to spawn outside of the microscopy space, 
         # but ensuring enough circumference is shown
         buffer = min_radius - 3 * self.tissue_config.guidelines_std
-        print(f"{buffer=} {min_radius=} {max_radius=} {3 * self.tissue_config.guidelines_std=} ")
+        logger.debug(f"{buffer=} {min_radius=} {max_radius=} {3 * self.tissue_config.guidelines_std=} ")
         extended_min = self.microscopy_config.coord_min - buffer
         extended_max = self.microscopy_config.coord_max + buffer
-        print(extended_min, extended_max)
+        logger.debug(extended_min, extended_max)
 
 
         if not self.tissue_config.allow_guideline_intersection:
             # The space sampled by PoissonDisk is defined in (0, 1)
-            pd = PoissonDisk(d=2, radius=2*self.tissue_config.max_radius_perc)
+            pd = PoissonDisk(d=2, radius=2*self.tissue_config.max_radius_perc, seed=self.simulator_config.seed)
             # Sampling centers in (0,1) and rescaling to microscopy coords
             centers = pd.random(self.tissue_config.n_curves) * (extended_max - extended_min) + extended_min
         else:

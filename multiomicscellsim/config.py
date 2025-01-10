@@ -29,10 +29,12 @@ class TissueConfig(BaseModel):
     cell_type_probabilities: List[List[float]] = Field([], description="Probability of each Guideline to spawn a cell type of the given type")
     
     initial_cell_size: int = Field(7, description="Initial Cell Size in pixels")
+    
 
 class SimulatorConfig(BaseModel):
     log_level: Literal["INFO", "WARNING", "DEBUG", "ERROR"] = Field("DEBUG", description="Logging Level")
 
+    seed: Union[int, None] = Field(None, description="Random seed for the Tissue. If None, a random seed is generated and saved in the tissue config for reproducibility.")
     microscopy_space_config: MicroscopySpaceConfig = Field(MicroscopySpaceConfig(), description="Settings for the Microscopy modality")
     tissue_config: TissueConfig = Field(TissueConfig(), description="Tissue-level input features")
     cpm_config: TorchCPMConfig = Field(description="Configuration for the algorithm used for growing Cells (CPM / RD)")
