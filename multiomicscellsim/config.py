@@ -39,3 +39,4 @@ class SimulatorConfig(BaseModel):
     tissue_config: TissueConfig = Field(TissueConfig(), description="Tissue-level input features")
     cpm_config: TorchCPMConfig = Field(description="Configuration for the algorithm used for growing Cells (CPM / RD)")
     save_tissue_every: int = Field(0, description="Save / Return a Tissue every N steps. If 0, only the last tissue is returned. Last tissue is always returned.")
+    

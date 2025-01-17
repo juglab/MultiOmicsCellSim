@@ -31,8 +31,8 @@ class TorchCPM():
     def __init__(self, config: TorchCPMConfig):
         self.config = config
     
-        self.grid = torch.zeros((2, config.size, config.size), dtype=torch.int) - 1
-        self.subgrid = torch.zeros((2, config.size, config.size), dtype=torch.float)
+        self.grid = (torch.zeros((2, config.size, config.size), dtype=torch.int) - 1).to(self.config.device)
+        self.subgrid = torch.zeros((2, config.size, config.size), dtype=torch.float).to(self.config.device)
 
         self.constraints = {"adhesion": TorchCPMAdhesionConstraint(config), 
                             "volume": TorchCPMVolumeConstraint(config),
@@ -191,7 +191,7 @@ class TorchCPM():
                 x_after, s_after = self.run_reaction_diffusion_on_cells(x_after, s_after, rd_steps)
                 total_rd_steps += rd_steps
             if should_yield or is_last_step:
-                yield x_after, s_after, cpm_step, total_rd_steps
+                yield x_after.cpu(), s_after.cpu(), cpm_step, total_rd_steps
 
             self.grid = x_after
             self.subgrid = s_after

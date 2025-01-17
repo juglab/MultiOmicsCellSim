@@ -1,7 +1,7 @@
 # Multi Omics Cell Simulator
 
 This package contains a simulator that is able to generate multi-modal data (i.e., microscopy-like, spatial-omics-like, single-cell-sequencing-like) from a set of input parameters.
-Please keep in mind that **currently** the aim of this simulator is **not** to attain an higher degree of biological fidelity. 
+Please notice that the aim of this simulator is **not** to attain an higher degree of biological fidelity. 
 Instead, the main advantage is to have a controllable tool that allows to mimic some underlying processes that govern biological data in a principled way, i.e., knowing the hidden "ground-truth" that is governing the correlations between the different modalities.
 
 
@@ -11,21 +11,20 @@ Instead, the main advantage is to have a controllable tool that allows to mimic 
 ```
 python -m venv venv && source venv/bin/activate
 ```
-2) To install the package locally from GitHub, clone the repository and install the package in development mode:
+2) To install the package in development mode, update your pip and run:
 
 ```
-pip install -e git+https://github.com/juglab/MultiOmicsCellSim.git
+git clone https://github.com/juglab/MultiOmicsCellSim.git
+cd MultiOmicsCellSim
+pip install -e .
 ```
-If you get an error regarding a missing seuptool-based build, please upgrade your pip installation.
-
-### Dev-Mode
-
-Just pull the repository, cd into it and install with `python -m pip install -e .`. Again, ensure you have an updated version of pip which supports `hatch` and editable mode together.
-
 ## Quick Start
 
 Refer to the [example notebook](examples/example.ipynb)
 
 ## Features:
 
-- Tissue-level pictograms (WIP): Generate **microscopy-like** images starting from some input features at a tissue, cell and subcellular level. 
+- Stochastical initial state generation: A Guideline (a curve definining a spatial distribution when a cell could spawn) is randomly generated, and it allows to sample cells with a particular distribution of cell types
+- Growing Cells: Cell Pott Model-based growing of cells.
+- Subcellular Representation: Subcellular content is represented using a Reaction Diffusion model. This allows to represent biological diversity in cell phenotypes that can be further encoded as genotypes.
+

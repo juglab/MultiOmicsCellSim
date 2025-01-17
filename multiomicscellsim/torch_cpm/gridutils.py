@@ -133,7 +133,7 @@ def get_volume_map(x:torch.Tensor, cell_id_channel=0):
     for obj in torch.unique(x):
         if obj <= 0:
             continue
-        volumes[x == obj] = (x == obj).sum()
+        volumes[x == obj] = (x == obj).sum().int()
     return volumes
 
 def get_volume(x:torch.Tensor, cell_id_channel=0):
