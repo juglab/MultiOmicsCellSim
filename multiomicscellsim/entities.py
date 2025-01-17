@@ -16,13 +16,25 @@ class Guideline(BaseModel):
     def get_cell_type(self) -> int:
         pass
 
+class CellParams(BaseModel):
+    f: float = Field(description="Current feed ratio of this cell")
+    k: float = Field(description="Current kill ratio of this cell")
+    d_a: float = Field(description="Current diffusion term of A subcellular layer")
+    d_b: float = Field(description="Current diffusion term of B subcellular layer")
+    a_avg: float = Field(description="Average value of A layer")
+    a_std: float = Field(description="Standard Deviation for tha A subcellular layer content")
+    b_avg: float = Field(description="Average value of B layer")
+    b_std: float = Field(description="Standard Deviation for tha B subcellular layer content")
+
 class Cell(BaseModel):
     """
         Represents a sampled cell
     """
     cell_id: int = Field(description="Integer ID of the cell within the tissue. IDs are mapped to the first channel of the grid.")
     start_coordinates: List[float]
-    cell_type: TorchCPMCellType
+    cell_type: TorchCPMCellType = Field(description="Assigned Cell Type of this cell")
+    params: Optional[Union[CellParams, None]] = Field(default=None, description="Parameter array of this cell. Values from which the gene vector is produced.")
+    
 
 class Tissue(BaseModel):
     """

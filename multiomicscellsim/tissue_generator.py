@@ -1,5 +1,5 @@
 from .config import SimulatorConfig, TissueConfig, MicroscopySpaceConfig
-from .entities import Tissue, Guideline, Cell
+from .entities import Tissue, Guideline, Cell, CellParams
 
 import numpy as np
 from scipy.stats.qmc import PoissonDisk
@@ -14,6 +14,8 @@ from .torch_cpm.simulation import TorchCPM
 
 from typing import List
 import random
+import torch
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
@@ -192,9 +194,13 @@ class TissueGenerator():
 
         logger.debug(f"Cell Spawned. Running CPM/RD...")
         
+
         tissues = list()
 
+        # Grow Cells and save a tissue at predetermined steps
         for cell_grid, subcell_grid, cpm_steps, rd_steps in cpm.yield_step(yield_every=self.simulator_config.save_tissue_every):
+
+            cells = self._extract_cells_params_from_grid(cells, cell_grid, subcell_grid)
             tissue = Tissue(
                         cpm_step=cpm_steps,
                         rd_step=rd_steps,
@@ -203,9 +209,34 @@ class TissueGenerator():
                         cell_grid=cell_grid,
                         subcell_grid=subcell_grid
                     )
+            # Update cell representation from image (parameter update)
             tissues.append(tissue)
         return tissues
 
+    def _extract_cells_params_from_grid(self, cells: List[Cell], cell_grid: np.ndarray, subcell_grid: np.ndarray):
+        """
+            Given a list of Cell, updates its parameters from a given (sub)cell_grid.
+        """
+
+        for cell in cells:
+
+            cell_mask = (cell_grid[0]==cell.cell_id)
+            A_subcellular = subcell_grid[0][cell_mask].numpy()
+            B_subcellular = subcell_grid[1][cell_mask].numpy()
+
+            # TODO: For now we are taking the params directly from the cell type itself.
+            # If we implement some cell variability we should take it from wherever we store (maybe a pre-existing params value?)
+            cell.params = CellParams(
+                f=cell.cell_type.subcellular_pattern.f,
+                k=cell.cell_type.subcellular_pattern.k,
+                d_a=cell.cell_type.subcellular_pattern.d_a,
+                d_b=cell.cell_type.subcellular_pattern.d_b,
+                a_avg=A_subcellular.mean(),
+                a_std=A_subcellular.std(),
+                b_avg=B_subcellular.mean(),
+                b_std=B_subcellular.std()
+            )
+        return deepcopy(cells)
 
     def plot_debug(self, tissue: Tissue, size: int = 8):
         fig, ax = plt.subplots(1, 1, figsize=(size, size))
