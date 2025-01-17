@@ -170,8 +170,6 @@ class TissueGenerator():
             centroids = self._sample_cell_centroid(gl)
 
             cpm_cell_centroids = [self._cartesian_to_grid_coords(c[0], c[1]) for c in centroids]
-            print(centroids)
-            print(cpm_cell_centroids)
 
             # Spawn cells in the CPM grid
             for centroid, cpm_cell_coord in zip(centroids, cpm_cell_centroids):
