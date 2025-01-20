@@ -145,7 +145,10 @@ class Simulator:
                                                             tissue_folder=tissue_folder,
                                                             seed=tissue_seed)
                 tissues.append(tissue_steps)
-            except:
+            except KeyboardInterrupt:
+                print("Operation interrupted. Exiting...")
+                raise 
+            except Exception as e:
                 logger.error(f"Generation of tissue {tissue_id} with seed {tissue_seed} failed. Dumping seed to file.")
                 self.log_error_seed(dataset_folder.joinpath("failed_seeds.log"), seed=tissue_seed)
         return tissues
