@@ -5,6 +5,7 @@ from .torch_cpm.config import TorchCPMCellType
 from .torch_cpm.constraints import TorchCPMConstraint
 from multiomicscellsim.torch_cpm.config import TorchCPMConfig
 from pathlib import Path
+import yaml
 
 class MicroscopySpaceConfig(BaseModel):
     coord_min: float = 0.0
@@ -44,3 +45,36 @@ class SimulatorConfig(BaseModel):
     dataset_prefix: str = Field(default="mycroverse_", description="Prefix for each generated dataset. An ordinal number will be appended if a folder with the same name already exists.")
     tissue_folder: str = Field(default="tissues", description="Name of the subfolder containing tissues")
     n_simulations: int = Field(description="How many tissues to generate")
+
+    @staticmethod
+    def from_yaml(path: Path) -> "SimulatorConfig":
+        """
+        Load a SimulatorConfig object from a YAML file.
+
+        Args:
+            path (Path): Path to the YAML file.
+
+        Returns:
+            SimulatorConfig: The loaded SimulatorConfig object.
+        """
+        if type(path) == str:
+            path = Path(path)
+        
+        with path.open("r") as f:
+            data = yaml.safe_load(f)
+        return SimulatorConfig(**data)
+
+    def to_yaml(self, path: Path):
+        """
+        Save the SimulatorConfig object to a YAML file.
+
+        Args:
+            path (Path): Path to the YAML file.
+        """
+        if type(path) == str:
+            path = Path(path)
+
+        with path.open("w") as f:
+            model_dict = self.model_dump()
+            model_dict["output_root"] = str(model_dict["output_root"])
+            yaml.dump(model_dict, f, default_flow_style=False)
