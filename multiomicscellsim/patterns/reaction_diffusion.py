@@ -21,6 +21,7 @@ class ReactionDiffusion():
 
     def __init__(self, config: ReactionDiffusionConfig):
         self.c = config
+        self.kernel = self._get_kernel(device="cuda")
 
     def _clamp(x: torch.Tensor):
         """
@@ -75,13 +76,13 @@ class ReactionDiffusion():
 
         return A, B
         
-    def _get_kernel(self):
+    def _get_kernel(self, device="cpu"):
         """
         Get the diffusion kernel
         """
         kernel = torch.tensor([[0.05, 0.2, 0.05], 
                                [0.2, -1,    0.2], 
-                               [0.05, 0.2, 0.05]], dtype=torch.float)
+                               [0.05, 0.2, 0.05]], dtype=torch.float).to(device)
         kernel = kernel.unsqueeze(0).unsqueeze(0)
         return kernel
     
@@ -114,13 +115,12 @@ class ReactionDiffusion():
         """
         Gets a gray-scott model update for the a and b chemicals
         """
-        kernel = self._get_kernel()
         A_ext = a.unsqueeze(0).unsqueeze(0)
         B_ext = b.unsqueeze(0).unsqueeze(0)
         
         # Diffusion terms using convolution
-        A_diffusion = F.conv2d(A_ext, kernel, padding="same").squeeze()
-        B_diffusion = F.conv2d(B_ext, kernel, padding="same").squeeze()
+        A_diffusion = F.conv2d(A_ext, self.kernel, padding="same").squeeze()
+        B_diffusion = F.conv2d(B_ext, self.kernel, padding="same").squeeze()
 
         # Reaction terms
         reaction = a * (b**2)

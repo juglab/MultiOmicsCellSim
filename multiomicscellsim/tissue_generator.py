@@ -1,5 +1,5 @@
 from .config import SimulatorConfig, TissueConfig, MicroscopySpaceConfig
-from .entities import Tissue, Guideline, Cell
+from .entities import Tissue, Guideline, Cell, CellParams
 
 import numpy as np
 from scipy.stats.qmc import PoissonDisk
@@ -14,6 +14,10 @@ from .torch_cpm.simulation import TorchCPM
 
 from typing import List
 import random
+from copy import deepcopy
+from pathlib import Path
+import yaml
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +35,7 @@ class TissueGenerator():
         self.microscopy_config = simulator_config.microscopy_space_config
         self.cpm_config = simulator_config.cpm_config
 
-    def _sample_guidelines(self):
+    def _sample_guidelines(self, seed=None):
         """
             Sample a new set of guidelines.
             If tissue_config.allow_guideline_intersection is False, then uses a PoissonDisk distribution
@@ -39,7 +43,12 @@ class TissueGenerator():
             Circumferences are allowed to have their center outside of their images boundaries, 
             as long as "enough" of the circumference is shown, that is, the center must be not further
             from either axis than the guideline radius minus 3-sigma (which is where most of the cells will spawn).
-                    
+
+            Args:
+                - seed (int): Seed to use for the generation. If None, simulation is random.
+                              This has to be passed as parameter wherever reproducibility is required
+                              and not set via common methods since some internal functions does not
+                              rely on math.random, numpy or torch for seed.
         """
         guidelines = []
         
@@ -60,7 +69,7 @@ class TissueGenerator():
 
         if not self.tissue_config.allow_guideline_intersection:
             # The space sampled by PoissonDisk is defined in (0, 1)
-            pd = PoissonDisk(d=2, radius=2*self.tissue_config.max_radius_perc, seed=self.simulator_config.seed)
+            pd = PoissonDisk(d=2, radius=2*self.tissue_config.max_radius_perc, seed=self.simulator_config.simulator_seed if seed is None else seed)
             # Sampling centers in (0,1) and rescaling to microscopy coords
             centers = pd.random(self.tissue_config.n_curves) * (extended_max - extended_min) + extended_min
         else:
@@ -155,23 +164,25 @@ class TissueGenerator():
 
         return row, col
 
-    def sample(self) -> List[Tissue]:
+    def sample(self, tissue_id: int = 0, tissue_folder: Path = None, seed: int = None) -> List[Tissue]:
         """
             Sample a new tissue.
+
+            Args: 
+                tissue_id (int): An integer identifier for this tissue chain.
+                tissue_folder (Path): A path where to save this tissue. If None, the tissue will be only returned.
         """
 
         # Define a CPM Simulation
         cpm = TorchCPM(self.cpm_config)
 
         # Generate the guidelines (in microscopy space) for spawning cells
-        guidelines = self._sample_guidelines()
+        guidelines = self._sample_guidelines(seed=seed)
         cells = []
         for g, gl in enumerate(guidelines):
             centroids = self._sample_cell_centroid(gl)
 
             cpm_cell_centroids = [self._cartesian_to_grid_coords(c[0], c[1]) for c in centroids]
-            print(centroids)
-            print(cpm_cell_centroids)
 
             # Spawn cells in the CPM grid
             for centroid, cpm_cell_coord in zip(centroids, cpm_cell_centroids):
@@ -186,16 +197,21 @@ class TissueGenerator():
                 if cell_id > 0:
                     cells.append(Cell(cell_id=cell_id,
                                       cell_type=cell_type,
-                                      start_coordinates = cpm_cell_coord
+                                      start_coordinates_cpm = cpm_cell_coord,
+                                      start_coordinates=centroid,
                                       )
                                  )
+                    gl.spawned_cell_ids.append(cell_id)
 
-        logger.debug(f"Cell Spawned. Running CPM/RD...")
-        
         tissues = list()
 
+        # Grow Cells and save a tissue at predetermined steps
         for cell_grid, subcell_grid, cpm_steps, rd_steps in cpm.yield_step(yield_every=self.simulator_config.save_tissue_every):
+
+            cells = self._extract_cells_params_from_grid(cells, cell_grid, subcell_grid)
             tissue = Tissue(
+                        id=tissue_id,
+                        tissue_seed=seed,
                         cpm_step=cpm_steps,
                         rd_step=rd_steps,
                         guidelines=guidelines,
@@ -203,9 +219,59 @@ class TissueGenerator():
                         cell_grid=cell_grid,
                         subcell_grid=subcell_grid
                     )
+            # Update cell representation from image (parameter update)
             tissues.append(tissue)
-        return tissues
 
+            if tissue_folder is not None:
+                self._dump_tissue(tissue, tissue_folder)
+        return tissues
+    
+    def _dump_tissue(self, tissue: Tissue, tissue_folder: Path):
+        """
+            Dump a tissue to a path
+        """
+
+        tissue_folder.mkdir(exist_ok=True, parents=True)
+
+        tissue_id = tissue.id
+        tissue_step = tissue.cpm_step
+        
+        out_path_yaml = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}.yaml")
+        out_path_cell = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}_cell.npy")
+        out_path_subcell = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}_subcell.npy")
+        
+        with open(out_path_yaml, "w") as file:
+            yaml.dump(tissue.model_dump(exclude={"cell_grid", "subcell_grid"}), file)
+
+        np.save(out_path_cell, tissue.cell_grid.cpu().numpy())
+        np.save(out_path_subcell, tissue.subcell_grid.cpu().numpy())
+
+        logger.info(f"Tissue exported to {tissue_folder}")
+
+    def _extract_cells_params_from_grid(self, cells: List[Cell], cell_grid: np.ndarray, subcell_grid: np.ndarray):
+        """
+            Given a list of Cell, updates its parameters from a given (sub)cell_grid.
+        """
+
+        for cell in cells:
+
+            cell_mask = (cell_grid[0]==cell.cell_id)
+            A_subcellular = subcell_grid[0][cell_mask].numpy()
+            B_subcellular = subcell_grid[1][cell_mask].numpy()
+
+            # TODO: For now we are taking the params directly from the cell type itself.
+            # If we implement some cell variability we should take it from wherever we store (maybe a pre-existing params value?)
+            cell.params = CellParams(
+                f=cell.cell_type.subcellular_pattern.f,
+                k=cell.cell_type.subcellular_pattern.k,
+                d_a=cell.cell_type.subcellular_pattern.d_a,
+                d_b=cell.cell_type.subcellular_pattern.d_b,
+                a_avg=A_subcellular.mean(),
+                a_std=A_subcellular.std(),
+                b_avg=B_subcellular.mean(),
+                b_std=B_subcellular.std()
+            )
+        return deepcopy(cells)
 
     def plot_debug(self, tissue: Tissue, size: int = 8):
         fig, ax = plt.subplots(1, 1, figsize=(size, size))

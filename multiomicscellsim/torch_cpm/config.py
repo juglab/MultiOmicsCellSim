@@ -10,7 +10,7 @@ class TorchCPMCellType(BaseModel):
     
     # Constraint-specific parameters
     background_adhesion: float=Field(10.0, description="Adhesion penalty term with the background for this cell type. Used with AdhesionConstraint. Higher values will make the cell to minimize contacts with the background (be rounder) but it can also make it disappear if no opposing constraints are in place")
-    cells_adhesion: torch.Tensor = Field(None, description="Adhesion energy with other cell types, excluding the background. Used with AdhesionConstraint. Higher values will make the cell avoid contacts with others, lower values will make the cell stick with others.")
+    cells_adhesion: List[float] = Field(None, description="Adhesion energy with other cell types, excluding the background. Used with AdhesionConstraint. Higher values will make the cell avoid contacts with others, lower values will make the cell stick with others.")
     
     preferred_volume: int = Field(None, description="Preferred volume for this cell type. Used with VolumeConstraint.")
     preferred_local_perimeter: int = Field(8, description="Preferred local perimeter for this cell type. Used with LocalPerimeterConstraint. 3: edges try to be flat and either vertical or horizontal. Greater numbers increases rougness or cuvature")
@@ -29,7 +29,7 @@ class TorchCPMCellType(BaseModel):
         """
         adhesion_vector = [x for i in range(1, n_types+1)]
         adhesion_vector[this_id-1] = 0.0 # Cell tries to avoid dissolving
-        return torch.Tensor(adhesion_vector)
+        return adhesion_vector
     
     class Config:
         arbitrary_types_allowed = True
@@ -48,6 +48,8 @@ class TorchCPMConfig(BaseModel):
     run_rd_every: int = Field(100, description="Number of CPM (cell growith) steps to run between a RD (subcellular dynamics) step.")
     rd_steps: int = Field(10000, description="Number of reaction diffusion steps to run at each RD phase.")
     rd_warmup_steps: int = Field(1000, description="Number of warmup steps for reaction diffusion.")
+
+    device: str = Field(description="Device on which to run CPM/RD steps")
 
     class Config:
         arbitrary_types_allowed = True
