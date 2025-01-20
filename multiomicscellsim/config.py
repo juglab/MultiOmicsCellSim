@@ -4,6 +4,7 @@ from typing import List, Literal, Union
 from .torch_cpm.config import TorchCPMCellType
 from .torch_cpm.constraints import TorchCPMConstraint
 from multiomicscellsim.torch_cpm.config import TorchCPMConfig
+from pathlib import Path
 
 class MicroscopySpaceConfig(BaseModel):
     coord_min: float = 0.0
@@ -34,9 +35,12 @@ class TissueConfig(BaseModel):
 class SimulatorConfig(BaseModel):
     log_level: Literal["INFO", "WARNING", "DEBUG", "ERROR"] = Field("DEBUG", description="Logging Level")
 
-    seed: Union[int, None] = Field(None, description="Random seed for the Tissue. If None, a random seed is generated and saved in the tissue config for reproducibility.")
+    simulator_seed: Union[int, None] = Field(None, description="Random seed for the Simulator. This is used to generate individual seeds for each tissue and when sampling simulation-level parameters.")
     microscopy_space_config: MicroscopySpaceConfig = Field(MicroscopySpaceConfig(), description="Settings for the Microscopy modality")
     tissue_config: TissueConfig = Field(TissueConfig(), description="Tissue-level input features")
     cpm_config: TorchCPMConfig = Field(description="Configuration for the algorithm used for growing Cells (CPM / RD)")
-    save_tissue_every: int = Field(0, description="Save / Return a Tissue every N steps. If 0, only the last tissue is returned. Last tissue is always returned.")
-    
+    save_tissue_every: int = Field(0, description="Save / Return a Tissue state every N steps. If 0, only the last tissue is returned for each simulation. Last tissue is always returned.")
+    output_root: Path = Field(description="Root Folder for dataset generation.")
+    dataset_prefix: str = Field(default="mycroverse_", description="Prefix for each generated dataset. An ordinal number will be appended if a folder with the same name already exists.")
+    tissue_folder: str = Field(default="tissues", description="Name of the subfolder containing tissues")
+    n_simulations: int = Field(description="How many tissues to generate")

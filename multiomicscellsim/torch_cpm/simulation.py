@@ -60,7 +60,7 @@ class TorchCPM():
             return 0
 
         # Add a new cell id (Avoiding 0, which is reserved)
-        cell_id = max(self.grid[0].max() + 1, 1)
+        cell_id = int(max(self.grid[0].max().item() + 1, 1))
         self.grid[0, x-size:x+size, y-size:y+size] = cell_id
         # Set the cell type
         self.grid[1, x-size:x+size, y-size:y+size] = cell_type
