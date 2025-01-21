@@ -188,11 +188,13 @@ class TissueGenerator():
             for centroid, cpm_cell_coord in zip(centroids, cpm_cell_centroids):
                 cell_type = random.choices(population=self.cpm_config.cell_types,
                                            weights=self.tissue_config.cell_type_probabilities[g])[0]
-                cell_id = cpm.draw_cell(x=cpm_cell_coord[0], 
-                                          y=cpm_cell_coord[1], 
-                                          cell_type=cell_type.id,
-                                          size=self.tissue_config.initial_cell_size,
-                                          )
+                cell_id = cpm.draw_cell( xc=cpm_cell_coord[0], 
+                                         yc=cpm_cell_coord[1], 
+                                         radius=self.tissue_config.initial_cell_radius,
+                                         edges=self.tissue_config.initial_cell_edges,
+                                         orientation=self.tissue_config.initial_cell_orientation,
+                                         cell_type=cell_type.id
+                                        )
                 # cell_id is 0 if write failed
                 if cell_id > 0:
                     cells.append(Cell(cell_id=cell_id,

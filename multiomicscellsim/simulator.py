@@ -149,7 +149,7 @@ class Simulator:
                 print("Operation interrupted. Exiting...")
                 raise 
             except Exception as e:
-                logger.error(f"Generation of tissue {tissue_id} with seed {tissue_seed} failed. Dumping seed to file.")
+                logger.error(f"Generation of tissue {tissue_id} with seed {tissue_seed} failed. Dumping seed to file. Error: {e}")
                 self.log_error_seed(dataset_folder.joinpath("failed_seeds.log"), seed=tissue_seed)
         return tissues
     

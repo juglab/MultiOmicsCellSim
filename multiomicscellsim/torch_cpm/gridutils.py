@@ -1,6 +1,9 @@
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import numpy as np
+from skimage.draw import polygon, disk
+
 
 def plot_tensors(tensors: list, titles: list = None, cmap='viridis'):
     """
@@ -339,3 +342,44 @@ def smallest_square_crop(mask):
     
     # Return the cropped mask and the bounding box indices
     return cropped_mask, (start_row, end_row, start_col, end_col)
+
+def get_regular_shape_mask(xc, yc, radius, edges, image_size, orientation=0):
+    """
+    Draw a regular polygon (or circle if edges == 0) on a square image with an optional orientation.
+
+    Args:
+        xc (float): X-coordinate of the center.
+        yc (float): Y-coordinate of the center.
+        radius (float): Radius of the circle or circumscribed circle of the polygon.
+        edges (int): Number of edges for the polygon. If 0, draw a circle.
+        image_size (int): Size of the square image (image_size x image_size).
+        orientation (float): Orientation of the first edge or vertex in radians.
+
+    Returns:
+        np.ndarray: A binary image with the polygon or circle drawn.
+    """
+    if edges < 0:
+        raise ValueError("Number of edges cannot be negative.")
+    
+    # Create a blank square image
+    image = np.zeros((image_size, image_size), dtype=np.uint8)
+    
+    if edges == 0:
+        # Draw a circle if edges == 0
+        rr, cc = disk((yc, xc), radius, shape=image.shape)
+        image[rr, cc] = 1
+    else:
+        # Calculate polygon vertices
+        vertices = []
+        angle_step = 2 * np.pi / edges
+        for i in range(edges):
+            angle = i * angle_step + orientation  # Apply orientation
+            x = xc + radius * np.cos(angle)
+            y = yc + radius * np.sin(angle)
+            vertices.append((y, x))  # skimage expects (row, col) format
+        
+        # Separate row and column coordinates for skimage.draw.polygon
+        rr, cc = polygon(*zip(*vertices), shape=image.shape)
+        image[rr, cc] = 1
+    
+    return image

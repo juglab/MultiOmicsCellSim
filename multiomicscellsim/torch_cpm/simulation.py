@@ -3,7 +3,7 @@ import torch
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 from .config import TorchCPMConfig
-from .gridutils import vectorized_moore_neighborhood, get_differet_neigborhood_mask, get_frontiers, choose_random_neighbor, copy_source_to_neighbors, smallest_square_crop, get_different_neighbors, copy_subgrid_to_neighbors
+from .gridutils import vectorized_moore_neighborhood, get_differet_neigborhood_mask, get_frontiers, choose_random_neighbor, copy_source_to_neighbors, smallest_square_crop, get_different_neighbors, get_regular_shape_mask
 from .constraints import TorchCPMAdhesionConstraint, TorchCPMVolumeConstraint, TorchCPMLocalPerimeterConstraint
 from multiomicscellsim.patterns.reaction_diffusion import ReactionDiffusionConfig, ReactionDiffusion
 
@@ -41,33 +41,47 @@ class TorchCPM():
         # Get a reaction diffusion simulation with standard parameters
         self.rd = ReactionDiffusion(ReactionDiffusionConfig())
 
-    def draw_cell(self, x: int, y: int, cell_type: int, size: int = 11):
+    def draw_cell(self, xc: int, yc: int, radius: float, edges: int, orientation:float, cell_type: int):
         """
-            Draws a cell in the grid. Returns the ID of the new cell if succeded, 
-            0 otherwise (i.e., the space of the cell is already occupied)
+            Draw a cell as a regular polygon (or circle if edges == 0) on the grid.
+            Returns the cell_id of the new cell on success (there is free space to draw the cell), 0 otherwise.
 
+            Args:
+                xc (float): X-coordinate of the center.
+                yc (float): Y-coordinate of the center.
+                radius (float): Radius of the circle or circumscribed circle of the polygon.
+                edges (int): Number of edges for the polygon. If 0, draw a circle.
+                image_size (int): Size of the square image (image_size x image_size).
+                orientation (float): Orientation of the first edge or vertex in radians.
+            Return:
+                int: Cell ID of the new cell if the shape fits in the background, 
+                     0 if no drawing occurred (cell overlaps with existing ones).
 
         """
         if cell_type not in [cell_type.id for cell_type in self.config.cell_types]:
             raise ValueError(f"Cell type {cell_type} not defined in the configuration.")
-        
-        if (self.grid[0, x-size:x+size, y-size:y+size] != -1).any():
-            return 0
-        
-         # Check if the square goes outside the boundaries of the image
-        if (x - size < 0 or x + size > self.grid.shape[1] or 
-            y - size < 0 or y + size > self.grid.shape[2]):
-            return 0
+        grid_size = self.config.size
 
+        if xc < 0 or xc >= grid_size or yc < 0 or yc >= grid_size:
+            return 0
+        
+        # Get a mask containing the new cell
+        new_cell_mask = get_regular_shape_mask(xc, yc, radius, edges, grid_size, orientation)
+        
+        # Checking overlaps between existing cells and the new cell
+        if ((self.grid[0].cpu() > 0) & new_cell_mask).any():
+            return 0
+        
         # Add a new cell id (Avoiding 0, which is reserved)
         cell_id = int(max(self.grid[0].max().item() + 1, 1))
-        self.grid[0, x-size:x+size, y-size:y+size] = cell_id
-        # Set the cell type
-        self.grid[1, x-size:x+size, y-size:y+size] = cell_type
+        
+        self.grid[0][new_cell_mask > 0] = cell_id
+        self.grid[1][new_cell_mask > 0] = cell_type
+
         # Set the subcellular pattern
         # This will be overwritten by the reaction diffusion simulation
         # The cell starts full of A, while B fills the stroma
-        self.subgrid[0, x-size:x+size, y-size:y+size] = (torch.rand(2*size, 2*size) > .5).float()
+        self.subgrid[0][new_cell_mask > 0] = (torch.rand((new_cell_mask > 0).sum()) > .5).float().to(self.config.device)
         self.subgrid[1] = 1.0-self.subgrid[0]
 
         return cell_id
@@ -210,7 +224,7 @@ class TorchCPM():
             if rd_params is None:
                 continue
             
-            for cell_id in grid_state[:, grid_state[1]==cell_type_id].unique():
+            for cell_id in grid_state[0][grid_state[1]==cell_type_id].unique():
                 if cell_id <= 0:
                     continue
 
