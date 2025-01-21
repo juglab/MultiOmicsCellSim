@@ -71,8 +71,7 @@ class SimulatorConfig(BaseModel):
         Args:
             path (Path): Path to the YAML file.
         """
-        if type(path) == str:
-            path = Path(path)
+        path = Path(path)
 
         with path.open("w") as f:
             model_dict = self.model_dump()

@@ -1,7 +1,11 @@
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, TypeVar
 from torch import Tensor
 from .torch_cpm.config import TorchCPMCellType
+from pathlib import Path
+import yaml
+import numpy as np
+
 
 class Guideline(BaseModel):
     type: Literal["circle"]
@@ -38,6 +42,7 @@ class Cell(BaseModel):
     params: Optional[Union[CellParams, None]] = Field(default=None, description="Parameter array of this cell. Values from which the gene vector is produced.")
     
 
+TTissue = TypeVar("TTissue", bound="Tissue")
 class Tissue(BaseModel):
     """
         Represents a sampled tissue
@@ -53,3 +58,51 @@ class Tissue(BaseModel):
     
     class Config:
         arbitrary_types_allowed = True
+
+    @staticmethod
+    def from_yaml(tissue_yaml_fp: Path) -> TTissue:
+        """
+            Read a tissue from its yaml file.
+        """
+        tissue_yaml_fp = Path(tissue_yaml_fp)
+        tissue_cell_fp = Path(str(tissue_yaml_fp).replace(".yaml", "_cell.npy"))
+        tissue_subcell_fp = Path(str(tissue_yaml_fp).replace(".yaml", "_subcell.npy"))
+
+        with tissue_yaml_fp.open("r") as f:
+            data = yaml.safe_load(f)
+            data["cell_grid"] = Tensor(np.load(tissue_cell_fp)).int()
+            data["subcell_grid"] = Tensor(np.load(tissue_subcell_fp)).float()
+        return Tissue(**data)
+    
+    @staticmethod
+    def from_folder(tissue_folder: Path) -> List[TTissue]:
+        """
+            Read a sequence of Tissues from a tissue folder.
+        """
+        tissue_folder = Path(tissue_folder)
+        tissues_fp = sorted(list(tissue_folder.rglob("*.yaml")))
+        tissues = []
+
+        for tissue_yaml_fp in tissues_fp:
+            tissues.append(Tissue.from_yaml(tissue_yaml_fp))
+        return tissues
+
+    def save(self, tissue_folder: Path):
+        """
+            Saves a tissue to a folder, storing the .yaml file with all the parameters and the grids as .npy files.
+        """
+
+        tissue_folder.mkdir(exist_ok=True, parents=True)
+
+        tissue_id = self.id
+        tissue_step = self.cpm_step
+        
+        out_path_yaml = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}.yaml")
+        out_path_cell = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}_cell.npy")
+        out_path_subcell = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}_subcell.npy")
+        
+        with open(out_path_yaml, "w") as file:
+            yaml.dump(self.model_dump(exclude={"cell_grid", "subcell_grid"}), file)
+
+        np.save(out_path_cell, self.cell_grid.cpu().numpy())
+        np.save(out_path_subcell, self.subcell_grid.cpu().numpy())

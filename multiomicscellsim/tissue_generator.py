@@ -223,31 +223,10 @@ class TissueGenerator():
             tissues.append(tissue)
 
             if tissue_folder is not None:
-                self._dump_tissue(tissue, tissue_folder)
+                tissue.save(tissue_folder=tissue_folder)
+                logger.info(f"Tissue exported to {tissue_folder}")
         return tissues
     
-    def _dump_tissue(self, tissue: Tissue, tissue_folder: Path):
-        """
-            Dump a tissue to a path
-        """
-
-        tissue_folder.mkdir(exist_ok=True, parents=True)
-
-        tissue_id = tissue.id
-        tissue_step = tissue.cpm_step
-        
-        out_path_yaml = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}.yaml")
-        out_path_cell = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}_cell.npy")
-        out_path_subcell = tissue_folder.joinpath(f"t_{tissue_id:07d}_s_{tissue_step:07d}_subcell.npy")
-        
-        with open(out_path_yaml, "w") as file:
-            yaml.dump(tissue.model_dump(exclude={"cell_grid", "subcell_grid"}), file)
-
-        np.save(out_path_cell, tissue.cell_grid.cpu().numpy())
-        np.save(out_path_subcell, tissue.subcell_grid.cpu().numpy())
-
-        logger.info(f"Tissue exported to {tissue_folder}")
-
     def _extract_cells_params_from_grid(self, cells: List[Cell], cell_grid: np.ndarray, subcell_grid: np.ndarray):
         """
             Given a list of Cell, updates its parameters from a given (sub)cell_grid.
