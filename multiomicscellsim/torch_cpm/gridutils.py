@@ -298,40 +298,44 @@ def choose_random_neighbor(x: torch.Tensor):
     chosen_nbr[:, allzero_mask.view([H, W])] = 0.0
     return chosen_nbr.bool()
 
-def smallest_square_crop(mask, hexagon_size=None):
-    """
-    Crops the smallest square region containing all non-zero elements in the mask.
-
-    Args:
-        mask (torch.Tensor): 2D binary mask with non-zero values defining the region of interest.
-        hexagon_size (int): The size (radius) of the hexagon, if cells are hexagonal.
-
-    Returns:
-        cropped_mask (torch.Tensor): Cropped square region of the mask.
-        bounds (tuple): Bounding box (start_row, end_row, start_col, end_col).
-    """
-    # Find non-zero indices in the mask
-    non_zero_indices = mask.nonzero(as_tuple=True)
-    if len(non_zero_indices[0]) == 0:
-        raise ValueError("Mask has no non-zero elements to crop.")
-
-    # Compute bounding box dimensions
-    min_row, max_row = non_zero_indices[0].min().item(), non_zero_indices[0].max().item()
-    min_col, max_col = non_zero_indices[1].min().item(), non_zero_indices[1].max().item()
-
-    # If hexagon_size is specified, calculate square side dynamically
-    if hexagon_size:
-        square_side = int(2 * hexagon_size)  # Side of the square bounding box
-        center_row = (min_row + max_row) // 2
-        center_col = (min_col + max_col) // 2
-
-        # Adjust bounds to ensure the square fits the hexagon
-        min_row = max(0, center_row - square_side // 2)
-        max_row = min(mask.shape[0], center_row + square_side // 2)
-        min_col = max(0, center_col - square_side // 2)
-        max_col = min(mask.shape[1], center_col + square_side // 2)
-
+def smallest_square_crop(mask):
+    # Find non-zero mask indices
+    non_zero_indices = mask.nonzero(as_tuple=True)  # tuple of row and col indices
+    min_row, max_row = non_zero_indices[0].min(), non_zero_indices[0].max()
+    min_col, max_col = non_zero_indices[1].min(), non_zero_indices[1].max()
+    
+    # Calculate bounding box width and height
+    width = max_col - min_col + 1
+    height = max_row - min_row + 1
+    
+    # Determine the size of the square
+    square_size = max(width, height)
+    
+    # Calculate the center of the bounding box
+    center_row = (min_row + max_row) // 2
+    center_col = (min_col + max_col) // 2
+    
+    # Adjust the start and end indices to create a square crop
+    half_size = square_size // 2
+    start_row = max(0, center_row - half_size)
+    end_row = start_row + square_size
+    start_col = max(0, center_col - half_size)
+    end_col = start_col + square_size
+    
+    # Adjust for boundary conditions if the square exceeds the original image dimensions
+    if end_row > mask.shape[0]:
+        start_row = mask.shape[0] - square_size
+        end_row = mask.shape[0]
+    if end_col > mask.shape[1]:
+        start_col = mask.shape[1] - square_size
+        end_col = mask.shape[1]
+    
+    # Ensure valid start indices
+    start_row = max(0, start_row)
+    start_col = max(0, start_col)
+    
     # Crop the mask
-    cropped_mask = mask[min_row:max_row, min_col:max_col]
-
-    return cropped_mask, (min_row, max_row, min_col, max_col)
+    cropped_mask = mask[start_row:end_row, start_col:end_col]
+    
+    # Return the cropped mask and the bounding box indices
+    return cropped_mask, (start_row, end_row, start_col, end_col)
