@@ -16,6 +16,7 @@ import random
 import os
 import torch
 import numpy as np
+import yaml
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the logging level
@@ -44,17 +45,27 @@ class Simulator:
             else:
                 self.config = self.load_config(config_fp)
                 logger.debug(f"Loaded configuration from file: {config_fp}")
-        self._apply_seed()
-        self.tissue_generator = TissueGenerator(simulator_config=self.config)
+        
+        # Set seed if not specified in config
+        self._set_simulator_seed()
+        # Apply simulator-wise seed
+        self._apply_seed(self.config.simulator_seed)
 
-    def _apply_seed(self):
+
+    def _set_simulator_seed(self):
+        """
+            Checks the simulator seed in the configuration. 
+            If None, generate a random seed to use, to ensure reproducible results.
+        """
+        if self.config.simulator_seed is None:
+            self.config.simulator_seed = random.randint(0, 2**32 - 1)
+            logger.info(f"Simulator seed has ben set to {self.config.simulator_seed}")
+        return self.config.simulator_seed
+
+    def _apply_seed(self, seed=None):
         """Apply the seed to all randomness sources."""
-        if self.config.seed is not None:
-            seed = self.config.seed 
-        else:
-            seed = random.randint(0, 2**32 - 1)
-            self.config.seed = seed
-        logger.info(f"Setting random seed to {seed}")
+        
+        logger.debug(f"Setting random seed to {seed}")
         random.seed(seed)
         os.environ['PYTHONHASHSEED'] = str(seed)
         np.random.seed(seed)
@@ -76,25 +87,71 @@ class Simulator:
         except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
             logging.error(f"Error loading configuration: {e}")
             raise
-
-    def generate_default_json(self):
-        """
-            Generate a json containing default parameters as starting point for creating a custom one.
-        """
-        return self.config
     
-    def plot_debug(self, tissue: Tissue):
-        self.tissue_generator.plot_debug(tissue)
-        tissue.cpm_grid.render(0)
-        tissue.cpm_grid.render(1)
+    def _setup_root_folder(self):
+        self.config.output_root.mkdir(parents=True, exist_ok=True)
 
-    def sample(self, n=1):
+    def _get_dataset_folder(self):
+        """
+            Get the first dataset folder available by increasing the dataset index iteratively
+        """
+        dataset_idx = 0
+        dataset_folder = self.config.output_root.joinpath(f"{self.config.dataset_prefix}{dataset_idx}")
+
+        while dataset_folder.exists():
+            dataset_idx += 1
+            dataset_folder = self.config.output_root.joinpath(f"{self.config.dataset_prefix}{dataset_idx}")
+        
+        dataset_folder.mkdir(parents=True, exist_ok=True)
+        return dataset_folder
+    
+    def dump_config(self, path: Path):
+        with open(path, "w") as file:
+            config_dict = self.config.model_dump()
+            # Yaml does not manage Path objects
+            config_dict["output_root"] = str(config_dict["output_root"])
+            yaml.dump(config_dict, file)
+        logger.info(f"Simulation Configuration written to {path}")
+
+    def log_error_seed(self, path: Path, seed: int):
+        """
+            Log seeds that failed generation in a path for debugging
+        """
+        with open(path, "+a") as debug_file:
+            debug_file.write(f"{seed}\n")
+
+
+    def sample(self):
         """
             Generate a new tissue sample.
         """
-        # TODO: allow batched sampling using threadpools
 
-        return self.tissue_generator.sample()
+        dataset_folder = self._get_dataset_folder()
+        
+        self.dump_config(dataset_folder.joinpath("sim_config.yaml"))
+
+        tissue_seeds = [random.randint(0, 2**32 - 1) for _ in range(self.config.n_simulations)]
+
+        tissue_generator = TissueGenerator(simulator_config=self.config)
+
+        tissues = list()
+        for tissue_id, tissue_seed in enumerate(tissue_seeds):
+            try:
+                tissue_folder = dataset_folder.joinpath(self.config.tissue_folder, str(tissue_id))
+
+                # Set the seed for the current tissue
+                self._apply_seed(tissue_seed)
+                tissue_steps = tissue_generator.sample(tissue_id=tissue_id,
+                                                            tissue_folder=tissue_folder,
+                                                            seed=tissue_seed)
+                tissues.append(tissue_steps)
+            except KeyboardInterrupt:
+                print("Operation interrupted. Exiting...")
+                raise 
+            except Exception as e:
+                logger.error(f"Generation of tissue {tissue_id} with seed {tissue_seed} failed. Dumping seed to file.")
+                self.log_error_seed(dataset_folder.joinpath("failed_seeds.log"), seed=tissue_seed)
+        return tissues
     
     def plot_tissue(self, t: Tissue, axs=None):
         if axs is None:

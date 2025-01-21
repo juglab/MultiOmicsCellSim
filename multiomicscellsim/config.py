@@ -4,6 +4,8 @@ from typing import List, Literal, Union
 from .torch_cpm.config import TorchCPMCellType
 from .torch_cpm.constraints import TorchCPMConstraint
 from multiomicscellsim.torch_cpm.config import TorchCPMConfig
+from pathlib import Path
+import yaml
 
 class MicroscopySpaceConfig(BaseModel):
     coord_min: float = 0.0
@@ -34,7 +36,7 @@ class TissueConfig(BaseModel):
 class SimulatorConfig(BaseModel):
     log_level: Literal["INFO", "WARNING", "DEBUG", "ERROR"] = Field("DEBUG", description="Logging Level")
 
-    seed: Union[int, None] = Field(None, description="Random seed for the Tissue. If None, a random seed is generated and saved in the tissue config for reproducibility.")
+    simulator_seed: Union[int, None] = Field(None, description="Random seed for the Simulator. This is used to generate individual seeds for each tissue and when sampling simulation-level parameters.")
     microscopy_space_config: MicroscopySpaceConfig = Field(MicroscopySpaceConfig(), description="Settings for the Microscopy modality")
     tissue_config: TissueConfig = Field(TissueConfig(), description="Tissue-level input features")
     cpm_config: TorchCPMConfig = Field(description="Configuration for the algorithm used for growing Cells (CPM / RD)")

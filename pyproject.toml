@@ -29,10 +29,13 @@ classifiers = [
 dependencies = [
 "matplotlib",
 "numpy<2.0",
-"shapely",
-"shapelysmooth",
 "pydantic",
-"scipy"
+"scipy",
+"torch",
+"tqdm",
+"scikit-image",
+"pyyaml",
+"IPython"
 ]
 
 [project.urls]

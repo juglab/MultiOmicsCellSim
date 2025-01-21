@@ -31,8 +31,8 @@ class TorchCPM():
     def __init__(self, config: TorchCPMConfig):
         self.config = config
     
-        self.grid = torch.zeros((2, config.size, config.size), dtype=torch.int) - 1
-        self.subgrid = torch.zeros((2, config.size, config.size), dtype=torch.float)
+        self.grid = (torch.zeros((2, config.size, config.size), dtype=torch.int) - 1).to(self.config.device)
+        self.subgrid = torch.zeros((2, config.size, config.size), dtype=torch.float).to(self.config.device)
 
         self.constraints = {"adhesion": TorchCPMAdhesionConstraint(config), 
                             "volume": TorchCPMVolumeConstraint(config),
@@ -47,29 +47,27 @@ class TorchCPM():
         """
         if cell_type not in [cell_type.id for cell_type in self.config.cell_types]:
             raise ValueError(f"Cell type {cell_type} not defined in the configuration.")
-    
-        # Add a new cell ID (Avoiding 0, which is reserved)
-        new_cell_id = max(self.grid[0].max() + 1, 1)
+        
+        if (self.grid[0, x-size:x+size, y-size:y+size] != -1).any():
+            return 0
+        
+         # Check if the square goes outside the boundaries of the image
+        if (x - size < 0 or x + size > self.grid.shape[1] or 
+            y - size < 0 or y + size > self.grid.shape[2]):
+            return 0
 
-        # Create a hexagonal mask with boundary checks for the grid
-        for i in range(-size, size + 1):
-            for j in range(-size, size + 1):
-                # Check if the point (i, j) is within the hexagon
-                if abs(i) + abs(j) <= size and abs(i - j) <= size:
-                    # Ensure the indices are within grid bounds
-                    if 0 <= x + i < self.grid.shape[1] and 0 <= y + j < self.grid.shape[2]:
-                        self.grid[0, x + i, y + j] = new_cell_id  # Set Cell_ID
-                        self.grid[1, x + i, y + j] = cell_type   # Set Cell_Type
+        # Add a new cell id (Avoiding 0, which is reserved)
+        cell_id = max(self.grid[0].max() + 1, 1)
+        self.grid[0, x-size:x+size, y-size:y+size] = cell_id
+        # Set the cell type
+        self.grid[1, x-size:x+size, y-size:y+size] = cell_type
+        # Set the subcellular pattern
+        # This will be overwritten by the reaction diffusion simulation
+        # The cell starts full of A, while B fills the stroma
+        self.subgrid[0, x-size:x+size, y-size:y+size] = (torch.rand(2*size, 2*size) > .5).float()
+        self.subgrid[1] = 1.0-self.subgrid[0]
 
-        # Initialize subcellular patterns (default: random A/B distribution) with boundary checks
-        for i in range(-size, size + 1):
-            for j in range(-size, size + 1):
-                if abs(i) + abs(j) <= size and abs(i - j) <= size:
-                    # Ensure the indices are within grid bounds
-                    if 0 <= x + i < self.grid.shape[1] and 0 <= y + j < self.grid.shape[2]:
-                        self.subgrid[0, x + i, y + j] = float(torch.rand(1).item() > 0.5)
-                        self.subgrid[1, x + i, y + j] = 1.0 - self.subgrid[0, x + i, y + j]
-        return new_cell_id        
+        return cell_id
 
     
     def plot_grid(self):
@@ -190,7 +188,7 @@ class TorchCPM():
                 x_after, s_after = self.run_reaction_diffusion_on_cells(x_after, s_after, rd_steps)
                 total_rd_steps += rd_steps
             if should_yield or is_last_step:
-                yield x_after, s_after, cpm_step, total_rd_steps
+                yield x_after.cpu(), s_after.cpu(), cpm_step, total_rd_steps
 
             self.grid = x_after
             self.subgrid = s_after
