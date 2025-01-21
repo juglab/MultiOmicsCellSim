@@ -6,6 +6,7 @@ from .torch_cpm.constraints import TorchCPMConstraint
 from multiomicscellsim.torch_cpm.config import TorchCPMConfig
 from pathlib import Path
 import yaml
+import math
 
 class MicroscopySpaceConfig(BaseModel):
     coord_min: float = 0.0
@@ -30,8 +31,9 @@ class TissueConfig(BaseModel):
 
     cell_type_probabilities: List[List[float]] = Field([], description="Probability of each Guideline to spawn a cell type of the given type")
     
-    initial_cell_size: int = Field(7, description="Initial Cell Size in pixels")
-    
+    initial_cell_radius: int = Field(7, description="Initial Cell Radius in pixels")
+    initial_cell_edges: int = Field(6, description="Number of edges for the initial cells. 0 for a circle, 6 for hexagons, etc.")
+    initial_cell_orientation: float = Field(-math.pi/2, description="Clockwise rotation in radians for the initial cell.")
 
 class SimulatorConfig(BaseModel):
     log_level: Literal["INFO", "WARNING", "DEBUG", "ERROR"] = Field("DEBUG", description="Logging Level")
