@@ -40,41 +40,4 @@ class SimulatorConfig(BaseModel):
     microscopy_space_config: MicroscopySpaceConfig = Field(MicroscopySpaceConfig(), description="Settings for the Microscopy modality")
     tissue_config: TissueConfig = Field(TissueConfig(), description="Tissue-level input features")
     cpm_config: TorchCPMConfig = Field(description="Configuration for the algorithm used for growing Cells (CPM / RD)")
-    save_tissue_every: int = Field(0, description="Save / Return a Tissue state every N steps. If 0, only the last tissue is returned for each simulation. Last tissue is always returned.")
-    output_root: Path = Field(description="Root Folder for dataset generation.")
-    dataset_prefix: str = Field(default="mycroverse_", description="Prefix for each generated dataset. An ordinal number will be appended if a folder with the same name already exists.")
-    tissue_folder: str = Field(default="tissues", description="Name of the subfolder containing tissues")
-    n_simulations: int = Field(description="How many tissues to generate")
-
-    @staticmethod
-    def from_yaml(path: Path) -> "SimulatorConfig":
-        """
-        Load a SimulatorConfig object from a YAML file.
-
-        Args:
-            path (Path): Path to the YAML file.
-
-        Returns:
-            SimulatorConfig: The loaded SimulatorConfig object.
-        """
-        if type(path) == str:
-            path = Path(path)
-        
-        with path.open("r") as f:
-            data = yaml.safe_load(f)
-        return SimulatorConfig(**data)
-
-    def to_yaml(self, path: Path):
-        """
-        Save the SimulatorConfig object to a YAML file.
-
-        Args:
-            path (Path): Path to the YAML file.
-        """
-        if type(path) == str:
-            path = Path(path)
-
-        with path.open("w") as f:
-            model_dict = self.model_dump()
-            model_dict["output_root"] = str(model_dict["output_root"])
-            yaml.dump(model_dict, f, default_flow_style=False)
+    save_tissue_every: int = Field(0, description="Save / Return a Tissue every N steps. If 0, only the last tissue is returned. Last tissue is always returned.")

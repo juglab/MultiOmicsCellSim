@@ -43,10 +43,7 @@ class TorchCPM():
 
     def draw_cell(self, x: int, y: int, cell_type: int, size: int = 11):
         """
-            Draws a cell in the grid. Returns the ID of the new cell if succeded, 
-            0 otherwise (i.e., the space of the cell is already occupied)
-
-
+        Draws each cell hexagonally, ensuring it stays within grid boundaries.
         """
         if cell_type not in [cell_type.id for cell_type in self.config.cell_types]:
             raise ValueError(f"Cell type {cell_type} not defined in the configuration.")
@@ -60,7 +57,7 @@ class TorchCPM():
             return 0
 
         # Add a new cell id (Avoiding 0, which is reserved)
-        cell_id = int(max(self.grid[0].max().item() + 1, 1))
+        cell_id = max(self.grid[0].max() + 1, 1)
         self.grid[0, x-size:x+size, y-size:y+size] = cell_id
         # Set the cell type
         self.grid[1, x-size:x+size, y-size:y+size] = cell_type
@@ -72,7 +69,7 @@ class TorchCPM():
 
         return cell_id
 
-
+    
     def plot_grid(self):
         """
             Plots the grid: Cell_ID, Cell_Type, Subcellular_A, Subcellular_B
