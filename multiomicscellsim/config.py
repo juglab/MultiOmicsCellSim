@@ -48,6 +48,9 @@ class SimulatorConfig(BaseModel):
     tissue_folder: str = Field(default="tissues", description="Name of the subfolder containing tissues")
     n_simulations: int = Field(description="How many tissues to generate")
 
+    on_error: Literal["continue", "raise"] = Field("continue", description="What to do when an error occurs during tissue generation. 'continue' will log the error and continue to the next tissue. 'raise' will raise an exception and stop the simulation.")
+
+
     @staticmethod
     def from_yaml(path: Path) -> "SimulatorConfig":
         """

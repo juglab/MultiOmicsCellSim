@@ -188,22 +188,36 @@ class TissueGenerator():
             for centroid, cpm_cell_coord in zip(centroids, cpm_cell_centroids):
                 cell_type = random.choices(population=self.cpm_config.cell_types,
                                            weights=self.tissue_config.cell_type_probabilities[g])[0]
-                cell_id = cpm.draw_cell( xc=cpm_cell_coord[0], 
+                cpm_cell = cpm.draw_cell( 
+                                         xc=cpm_cell_coord[0], 
                                          yc=cpm_cell_coord[1], 
                                          radius=self.tissue_config.initial_cell_radius,
                                          edges=self.tissue_config.initial_cell_edges,
                                          orientation=self.tissue_config.initial_cell_orientation,
-                                         cell_type=cell_type.id
+                                         cell_type_id=cell_type.id,
+                                         subcell_init_noise=cell_type.subcell_initial_noise,
                                         )
-                # cell_id is 0 if write failed
-                if cell_id > 0:
-                    cells.append(Cell(cell_id=cell_id,
+                
+                # cpm_cell is None if the cell could not be spawned
+                if cpm_cell is not None:
+                    cells.append(Cell(cell_id=cpm_cell.id,
                                       cell_type=cell_type,
                                       start_coordinates_cpm = cpm_cell_coord,
                                       start_coordinates=centroid,
+                                      params=CellParams(
+                                        f=cpm_cell.f,
+                                        k=cpm_cell.k,
+                                        d_a=cpm_cell.d_a,
+                                        d_b=cpm_cell.d_b,
+                                        # These will be extracted from the subcellular grid on save
+                                        a_avg=0,
+                                        a_std=0,
+                                        b_avg=0,
+                                        b_std=0                                        
+                                      ),
                                       )
                                  )
-                    gl.spawned_cell_ids.append(cell_id)
+                    gl.spawned_cell_ids.append(cpm_cell.id)
 
         tissues = list()
 
@@ -235,23 +249,20 @@ class TissueGenerator():
         """
 
         for cell in cells:
-
             cell_mask = (cell_grid[0]==cell.cell_id)
             A_subcellular = subcell_grid[0][cell_mask].numpy()
             B_subcellular = subcell_grid[1][cell_mask].numpy()
-
-            # TODO: For now we are taking the params directly from the cell type itself.
-            # If we implement some cell variability we should take it from wherever we store (maybe a pre-existing params value?)
-            cell.params = CellParams(
-                f=cell.cell_type.subcellular_pattern.f,
-                k=cell.cell_type.subcellular_pattern.k,
-                d_a=cell.cell_type.subcellular_pattern.d_a,
-                d_b=cell.cell_type.subcellular_pattern.d_b,
+            new_params = CellParams(
+                f=cell.params.f,
+                k=cell.params.k,
+                d_a=cell.params.d_a,
+                d_b=cell.params.d_b,
                 a_avg=A_subcellular.mean(),
                 a_std=A_subcellular.std(),
                 b_avg=B_subcellular.mean(),
                 b_std=B_subcellular.std()
             )
+            cell.params = new_params
         return deepcopy(cells)
 
     def plot_debug(self, tissue: Tissue, size: int = 8):
