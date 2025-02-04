@@ -5,6 +5,11 @@ from functools import cached_property
 from multiomicscellsim.patterns.config import RDPatternConfig, ReactionDiffusionConfig
 
 class TorchCPMCellType(BaseModel):
+    """
+        Represents a cell type in the CPM model.
+        Hosts the parameters for the cell type, such as adhesion, preferred volume, etc.
+        For the subcellular simulation, it also hosts the input parameters for the RD model.
+    """
     id: int = Field(1, description="Unique Identifier for the cell type. Cannot be 0 for consistency with pixel values")
     name: Optional[str] = Field("", description="Human Readable name of the cell type")
     
@@ -16,8 +21,13 @@ class TorchCPMCellType(BaseModel):
     preferred_local_perimeter: int = Field(8, description="Preferred local perimeter for this cell type. Used with LocalPerimeterConstraint. 3: edges try to be flat and either vertical or horizontal. Greater numbers increases rougness or cuvature")
     subcellular_pattern: Union[None, RDPatternConfig] = Field(None, description="Subcellular pattern to use for this cell type. If None, no subcellular simulation will be run for this cell type.")
     
+    subcell_f_std: float = Field(0.0005, description="Standard deviation for differentiating feed ratio in the subcellular simulation")
+    subcell_k_std: float = Field(0.0005, description="Standard deviation for differentiating kill ratio in the subcellular simulation")
+    subcell_da_std: float = Field(0, description="Standard deviation for differentiating diffusion of A layer in the subcellular simulation")
+    subcell_db_std: float = Field(0, description="Standard deviation for differentiating diffusion of B layer in the subcellular simulation")
+    
 
-    subcell_initial_noise: Union[None, Literal["bernoulli"]] = Field(None, description="Initial noise pattern in the simulation. Allows to introduce some randomness in the initial state of the simulation and promote pattern development.")
+    subcell_initial_noise: Union[None, Literal["bernoulli"]] = Field("bernoulli", description="Initial noise pattern in the simulation. Allows to introduce some randomness in the initial state of the simulation and promote pattern development.")
     
 
     @staticmethod
@@ -36,6 +46,19 @@ class TorchCPMCellType(BaseModel):
     
     class Config:
         arbitrary_types_allowed = True
+
+class TorchCPMCell(BaseModel):
+    """
+        Represents a cell instance as seen by the CPM model.
+    """
+
+    id: int = Field(0, description="Unique Identifier for the cell. Cannot be 0 for consistency with pixel values in CPM grid.")
+    cell_type: TorchCPMCellType = Field(None, description="Cell type for this cell.")
+    f: float = Field(0.0, description="Actual (sampled) feed rate value for this cell. Used in the subcellular simulation.")
+    k: float = Field(0.0, description="Actual (sampled) kill rate value for this cell. Used in the subcellular simulation.")
+    d_a: float = Field(0.0, description="Actual (sampled) diffusion rate for the A layer in the subcellular simulation.")
+    d_b: float = Field(0.0, description="Actual (sampled) diffusion rate for the B layer in the subcellular simulation.")
+
 
 class TorchCPMConfig(BaseModel):
     size: int = Field(256, description="Size of the grid for the CPM simulation.")
