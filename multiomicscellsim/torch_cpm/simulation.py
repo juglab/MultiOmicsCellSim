@@ -6,7 +6,7 @@ from .config import TorchCPMConfig
 from .gridutils import vectorized_moore_neighborhood, get_differet_neigborhood_mask, get_frontiers, choose_random_neighbor, copy_source_to_neighbors, smallest_square_crop, get_different_neighbors, get_regular_shape_mask
 from .constraints import TorchCPMAdhesionConstraint, TorchCPMVolumeConstraint, TorchCPMLocalPerimeterConstraint
 from multiomicscellsim.patterns.reaction_diffusion import ReactionDiffusionConfig, ReactionDiffusion
-
+from typing import Literal
 
 class TorchCPM():
     """
@@ -41,7 +41,7 @@ class TorchCPM():
         # Get a reaction diffusion simulation with standard parameters
         self.rd = ReactionDiffusion(ReactionDiffusionConfig())
 
-    def draw_cell(self, xc: int, yc: int, radius: float, edges: int, orientation:float, cell_type: int):
+    def draw_cell(self, xc: int, yc: int, radius: float, edges: int, orientation:float, cell_type: int, subcell_init_noise: Literal["binomial"] = None):
         """
             Draw a cell as a regular polygon (or circle if edges == 0) on the grid.
             Returns the cell_id of the new cell on success (there is free space to draw the cell), 0 otherwise.
@@ -81,7 +81,10 @@ class TorchCPM():
         # Set the subcellular pattern
         # This will be overwritten by the reaction diffusion simulation
         # The cell starts full of A, while B fills the stroma
-        self.subgrid[0][new_cell_mask > 0] = (torch.rand((new_cell_mask > 0).sum()) > .5).float().to(self.config.device)
+        if subcell_init_noise == "bernoulli":
+            self.subgrid[0][new_cell_mask > 0] = (torch.rand((new_cell_mask > 0).sum()) > .5).float().to(self.config.device)
+        else:
+            self.subgrid[0][new_cell_mask > 0] = 1.0
         self.subgrid[1] = 1.0-self.subgrid[0]
 
         return cell_id

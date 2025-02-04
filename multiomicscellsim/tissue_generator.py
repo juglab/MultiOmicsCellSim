@@ -193,7 +193,8 @@ class TissueGenerator():
                                          radius=self.tissue_config.initial_cell_radius,
                                          edges=self.tissue_config.initial_cell_edges,
                                          orientation=self.tissue_config.initial_cell_orientation,
-                                         cell_type=cell_type.id
+                                         cell_type=cell_type.id,
+                                         subcell_init_noise=cell_type.subcell_initial_noise,
                                         )
                 # cell_id is 0 if write failed
                 if cell_id > 0:

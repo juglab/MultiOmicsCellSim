@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Literal
 import torch
 from functools import cached_property
 from multiomicscellsim.patterns.config import RDPatternConfig, ReactionDiffusionConfig
@@ -15,6 +15,9 @@ class TorchCPMCellType(BaseModel):
     preferred_volume: int = Field(None, description="Preferred volume for this cell type. Used with VolumeConstraint.")
     preferred_local_perimeter: int = Field(8, description="Preferred local perimeter for this cell type. Used with LocalPerimeterConstraint. 3: edges try to be flat and either vertical or horizontal. Greater numbers increases rougness or cuvature")
     subcellular_pattern: Union[None, RDPatternConfig] = Field(None, description="Subcellular pattern to use for this cell type. If None, no subcellular simulation will be run for this cell type.")
+    
+
+    subcell_initial_noise: Union[None, Literal["bernoulli"]] = Field(None, description="Initial noise pattern in the simulation. Allows to introduce some randomness in the initial state of the simulation and promote pattern development.")
     
 
     @staticmethod
